@@ -1,0 +1,57 @@
+# --- System Files ---
+.DS_Store
+Thumbs.db
+*.log
+
+# --- IDEs & Editors ---
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.project
+.settings/
+.classpath
+
+# --- Project Specific ---
+.run/
+logs/
+temp/
+bin/
+
+# --- Backend (Java/Maven) ---
+backend/target/
+backend/.mvn/
+backend/nbactions.xml
+backend/nb-configuration.xml
+
+# --- Frontend (Node/React) ---
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+
+# --- ML-Service (Python) ---
+ml-service/__pycache__/
+ml-service/*.py[cod]
+ml-service/*$py.class
+ml-service/.venv/
+ml-service/venv/
+ml-service/env/
+ml-service/.pytest_cache/
+ml-service/.ipynb_checkpoints/
+ml-service/.python-version
+
+# ML Data & Models (Artefakte, die nicht ins Git sollen)
+ml-service/data/*.csv
+ml-service/data/*.json
+ml-service/model.pkl
+
+# --- OS-specific ---
+.history/
