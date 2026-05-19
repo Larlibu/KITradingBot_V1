@@ -189,6 +189,11 @@ async def trigger_training(background_tasks: BackgroundTasks) -> Dict[str, str]:
 
 @app.get("/train/status", summary="Trainingsstatus abrufen")
 async def get_training_status() -> Dict[str, Any]:
+    # Wenn kein Lauf im aktuellen Prozess war, versuchen wir das Datum der Modell-Datei zu lesen
+    if training_info["last_run"] is None and MODEL_PATH.exists():
+        mtime = MODEL_PATH.stat().st_mtime
+        training_info["last_run"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(mtime))
+        print(f"Zeitstempel für Training aus Datei gelesen: {training_info['last_run']}")
     return training_info
 
 # --- DATEN-DOWNLOAD LOGIK ---
@@ -213,4 +218,12 @@ async def trigger_data_update(background_tasks: BackgroundTasks) -> Dict[str, st
 
 @app.get("/data/status", summary="Marktdaten-Downloadstatus abrufen")
 async def get_data_status() -> Dict[str, Any]:
+    # Wenn kein Update im aktuellen Prozess war, versuchen wir das Datum der Datendatei zu lesen
+    raw_file_path = (DATA_DIR / "raw_1h.csv").resolve()
+    if download_info["last_update"] is None and raw_file_path.exists():
+        mtime = raw_file_path.stat().st_mtime
+        download_info["last_update"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(mtime))
+        print(f"Zeitstempel für Daten aus Datei gelesen: {download_info['last_update']}")
+    elif download_info["last_update"] is None:
+        print(f"WARNUNG: Datendatei nicht gefunden unter: {raw_file_path}")
     return download_info

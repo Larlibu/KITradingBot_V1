@@ -9,15 +9,32 @@
  * @param {Array<object>} [props.indicators=[]] - Eine Liste von Objekten { name, value } für die anzuzeigenden Indikatoren.
  * @param {object} props.serverStatus - Der Status der Backend-Dienste (backend, mlService).
  * @param {string} props.viewMode - Der aktuelle Ansichtsmodus ('LIVE' oder 'ANALYSE').
+ * @param {string|number} props.timestamp - Zeitstempel der aktuellsten Marktdaten.
  * @returns {JSX.Element} Das gerenderte Dashboard mit Karten.
  */
-export default function DashboardCards({ price, signal, confidence, indicators = [], serverStatus, viewMode }) {
+export default function DashboardCards({ price, signal, confidence, indicators = [], serverStatus, viewMode, timestamp }) {
   const isLive = viewMode === "LIVE";
 
   // Formatiert das Signal für die Anzeige
   const signalLabel = signal === "BUY" ? "KAUFEN (LONG)" : signal === "SELL" ? "VERKAUFEN (SHORT)" : "WARTEN (HOLD)";
   // Bestimmt die Farbe des Signals
   const signalColor = signal === "BUY" ? "var(--success)" : signal === "SELL" ? "var(--danger)" : "var(--text-main)";
+
+  // Formatiert den Zeitstempel für eine lesbare Anzeige
+  let formattedTime = "Keine Daten";
+  if (timestamp) {
+    try {
+      const date = new Date(timestamp);
+      if (!isNaN(date.getTime())) {
+        formattedTime = date.toLocaleString('de-DE', { 
+          day: '2-digit', month: '2-digit', year: 'numeric', 
+          hour: '2-digit', minute: '2-digit', second: '2-digit' 
+        });
+      }
+    } catch (e) {
+      console.error("Zeitstempel-Fehler:", e);
+    }
+  }
 
   /**
    * Hilfskomponente zur Anzeige des Status eines Dienstes (Online/Offline).
@@ -84,10 +101,20 @@ export default function DashboardCards({ price, signal, confidence, indicators =
           gridTemplateColumns: `repeat(${3 + indicators.length}, 1fr)`,
           gap: '15px'
       }}>
-        {/* Karte: Aktueller Preis */}
+        {/* Karte: Aktueller Preis mit Zeitstempel */}
         <div className="card">
           <p className="card-label">Preis</p>
           <h3 style={{ color: isLive ? 'inherit' : '#f59e0b' }}>${price.toFixed(2)}</h3>
+          <p style={{ 
+            fontSize: '0.65rem', 
+            color: 'var(--text-muted)', 
+            marginTop: '5px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px'
+          }}>
+            🕒 {formattedTime}
+          </p>
         </div>
 
         {/* Karte: Handelssignal */}

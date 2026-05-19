@@ -66,4 +66,21 @@ Die Indikatoren sind im Backend nicht mehr "hart" codiert. Das Frontend fungiert
 Es ist von kritischer Bedeutung, dass die Formeln in `tradingviewindicators.js` (JS) und den Java-Klassen (z.B. `SmaIndicator.java`) exakt identisch sind. Nur so ist gewährleistet, dass ein im Replay gesehenes Signal später im Live-Handel exakt so ausgelöst wird (**"What You See Is What You Get"**).
 
 ---
+
+## 🚀 4. Durchgeführte Arbeiten & Refactorings (Session 5)
+
+### System-Stabilität & Fehlerbehebung
+*   **Optionale ML-Integration**: Die `SimpleBacktestEngine` in Java wurde so optimiert, dass der ML-Service nur noch kontaktiert wird, wenn das `useMl`-Flag aktiv ist. Dies verhindert Timeouts und Abstürze bei reinen technischen Analysen (z.B. nur RSI).
+*   **Robuste Signal-Engine**: Die `HybridSignalEngine` prüft nun explizit auf `anyIndicatorActive` und markiert unbekannte Indikatoren (wie MACD) als `UNSUPPORTED`, anstatt den Konsens zu verfälschen.
+*   **React DOM-Fix**: Behebung eines `validateDOMNesting`-Fehlers in der `TradesTable.jsx`, der durch Kommentare innerhalb von Tabellen-Tags verursacht wurde.
+
+### Intelligentes Status-Tracking
+*   **Persistente Zeitstempel**: Der ML-Service (`api.py`) liest nun die Zeitstempel für das letzte Training und Daten-Update direkt aus den Metadaten der Dateien (`model.pkl` und `raw_1h.csv`). Dadurch bleiben die Informationen auch nach einem Server-Neustart im Dashboard erhalten.
+*   **Absolute Pfad-Auflösung**: Umstellung auf `.resolve()` in Python, um Pfadprobleme beim Start aus unterschiedlichen Verzeichnissen zu vermeiden.
+
+### UI/UX Optimierungen
+*   **Preis-Kontext**: Der Zeitstempel der Marktdaten wurde direkt in die Preis-Karte integriert, um die Aktualität der Kurse sofort ersichtlich zu machen.
+*   **Permanente Status-Anzeige**: Im ML-Panel werden die Zeitpunkte des letzten Trainings/Updates nun dauerhaft unter den Buttons angezeigt (statt nur nach einem Erfolg).
+
+---
 *Zuletzt aktualisiert: 19. Mai 2026*

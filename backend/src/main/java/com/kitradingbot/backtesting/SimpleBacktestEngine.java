@@ -87,31 +87,37 @@ public class SimpleBacktestEngine implements BacktestEngine {
         List<Candle> market = marketDataService.getMarketData(symbol, candles);
         int warmup = featurePipeline.warmupPeriod();
         
-        // 1. Batch-Vorbereitung: Berechne alle Features im Voraus für alle relevanten Kerzen.
-        // Dies geschieht, bevor die ML-Vorhersagen angefordert werden.
-        List<double[]> allFeatures = new ArrayList<>();
-        for (int i = warmup; i < market.size(); i++) {
-            // Die Feature-Pipeline benötigt die gesamte Historie bis zum aktuellen Index.
-            allFeatures.add(featurePipeline.buildFeatures(market.subList(0, i + 1), indicators));
+        // 1. Batch-Vorbereitung: Berechne Features und hole Vorhersagen nur, wenn useMl aktiv ist.
+        List<MlPredictionResponse> predictions = new ArrayList<>();
+        if (useMl) {
+            List<double[]> allFeatures = new ArrayList<>();
+            for (int i = warmup; i < market.size(); i++) {
+                allFeatures.add(featurePipeline.buildFeatures(market.subList(0, i + 1), indicators));
+            }
+            log.info("Sende Batch-Prediction für {} Ticks an den ML-Service.", allFeatures.size());
+            try {
+                predictions = mlServiceClient.predictBatch(allFeatures);
+            } catch (Exception e) {
+                log.error("Fehler bei der Batch-Prediction: {}. Backtest wird ohne KI fortgesetzt.", e.getMessage());
+                useMl = false; // Fallback: KI deaktivieren, wenn der Service einen Fehler wirft
+            }
         }
 
-        // 2. Batch-Prediction: Sende ALLE vorbereiteten Features mit EINEM Call zum ML-Service.
-        // Dies ist entscheidend für die Performance des Backtests.
-        log.info("Sende Batch-Prediction für {} Ticks an den ML-Service.", allFeatures.size());
-        List<MlPredictionResponse> predictions = mlServiceClient.predictBatch(allFeatures);
-
-        // 3. Simulation: Initialisierung des Zustands und Iteration durch die Kerzen.
-        double initialCapital = 10_000.0; // Startkapital für den Backtest
+        // 2. Simulation: Initialisierung des Zustands und Iteration durch die Kerzen.
+        double initialCapital = 10_000.0;
         initSimulation(initialCapital);
 
-        // Iteriere durch die Kerzen, beginnend nach der Warmup-Periode.
-        for (int i = 0; i < predictions.size(); i++) {
-            int currentMarketIndex = i + warmup; // Der tatsächliche Index in der gesamten Marktdatenliste
-            Candle currentCandle = market.get(currentMarketIndex); // Die aktuelle Kerze
-            MlPredictionResponse prediction = predictions.get(i); // Die KI-Vorhersage für diese Kerze
+        // Bestimme die Start-Iteration (entweder nach Warmup oder ab Index 0)
+        int startIdx = useMl ? warmup : 1; 
+
+        for (int i = startIdx; i < market.size(); i++) {
+            Candle currentCandle = market.get(i);
+            // Hole die passende Prediction aus der Liste, falls useMl aktiv ist
+            MlPredictionResponse prediction = (useMl && !predictions.isEmpty()) 
+                ? predictions.get(i - warmup) 
+                : null;
             
-            // Signalgenerierung unter Verwendung der dynamischen Indikatoren und des useMl-Flags.
-            SignalDecision decision = signalEngine.generateSignal(market.subList(0, currentMarketIndex + 1), prediction, useMl, indicators);
+            SignalDecision decision = signalEngine.generateSignal(market.subList(0, i + 1), prediction, useMl, indicators);
 
             // Handelsausführung simulieren
             if (decision.signal() == SignalType.BUY && currentQuantity == 0.0) {

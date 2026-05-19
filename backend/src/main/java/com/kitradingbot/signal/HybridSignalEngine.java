@@ -99,23 +99,22 @@ public class HybridSignalEngine implements SignalEngine {
 
 
         // 2. Dynamische Indikatoren auswerten
-        boolean allIndicatorsBuy = true; // Annahme: Alle Indikatoren stimmen einem Kauf zu
-        boolean allIndicatorsSell = true; // Annahme: Alle Indikatoren stimmen einem Verkauf zu
+        boolean anyIndicatorActive = false;
+        boolean allIndicatorsBuy = true;
+        boolean allIndicatorsSell = true;
         
-        // Wenn Indikatoren vom Frontend übergeben wurden, diese auswerten
         if (indicators != null && !indicators.isEmpty()) {
+            anyIndicatorActive = true;
             for (IndicatorConfig config : indicators) {
                 String type = config.type().toUpperCase();
                 
-                // SMA-Logik: Kauf, wenn Close > SMA; Verkauf, wenn Close < SMA
                 if ("SMA".equals(type)) {
                     int len = config.getIntParam("length", 20);
                     double val = smaIndicator.calculate(candles, idx, len);
-                    if (close <= val) allIndicatorsBuy = false; // Close nicht über SMA -> kein Kauf
-                    if (close >= val) allIndicatorsSell = false; // Close nicht unter SMA -> kein Verkauf
+                    if (close <= val) allIndicatorsBuy = false;
+                    if (close >= val) allIndicatorsSell = false;
                     statuses.add("SMA=" + (close > val ? "BUY" : (close < val ? "SELL" : "HOLD")));
                 } 
-                // EMA-Logik: Kauf, wenn Close > EMA; Verkauf, wenn Close < EMA
                 else if ("EMA".equals(type)) {
                     int len = config.getIntParam("length", 20);
                     double val = emaIndicator.calculate(candles, idx, len);
@@ -123,37 +122,36 @@ public class HybridSignalEngine implements SignalEngine {
                     if (close >= val) allIndicatorsSell = false;
                     statuses.add("EMA=" + (close > val ? "BUY" : (close < val ? "SELL" : "HOLD")));
                 } 
-                // RSI-Logik: Kauf, wenn RSI <= Oversold; Verkauf, wenn RSI >= Overbought
                 else if ("RSI".equals(type)) {
                     int len = config.getIntParam("length", 14);
                     double ob = config.getDoubleParam("overbought", 70);
                     double os = config.getDoubleParam("oversold", 30);
                     double val = rsiIndicator.calculate(candles, idx, len);
-                    if (val > os) allIndicatorsBuy = false; // RSI nicht unter Oversold -> kein Kauf
-                    if (val < ob) allIndicatorsSell = false; // RSI nicht über Overbought -> kein Verkauf
+                    if (val > os) allIndicatorsBuy = false;
+                    if (val < ob) allIndicatorsSell = false;
                     statuses.add("RSI=" + (val <= os ? "BUY" : (val >= ob ? "SELL" : "HOLD")));
                 } 
-                // BBANDS-Logik: Kauf, wenn Close < Lower Band; Verkauf, wenn Close > Upper Band
                 else if ("BBANDS".equals(type)) {
                     BbandsIndicator.Bands bands = bbandsIndicator.calculate(candles, idx, config.getIntParam("length", 20), config.getDoubleParam("mult", 2.0));
-                    if (close >= bands.lower()) allIndicatorsBuy = false; // Close nicht unter Lower Band -> kein Kauf
-                    if (close <= bands.upper()) allIndicatorsSell = false; // Close nicht über Upper Band -> kein Verkauf
+                    if (close >= bands.lower()) allIndicatorsBuy = false;
+                    if (close <= bands.upper()) allIndicatorsSell = false;
                     statuses.add("BB=" + (close < bands.lower() ? "BUY" : (close > bands.upper() ? "SELL" : "HOLD")));
                 }
-                // Hier könnten weitere Indikatoren hinzugefügt werden (z.B. MACD)
+                else {
+                    // Unbekannter Indikator (z.B. MACD) -> darf den Konsens nicht fälschlich positiv beeinflussen
+                    allIndicatorsBuy = false;
+                    allIndicatorsSell = false;
+                    statuses.add(type + "=UNSUPPORTED");
+                }
             }
         } else {
-            // Fallback-Logik: Wenn keine Indikatoren vom Frontend übergeben wurden,
-            // werden die Standard-Indikatoren aus den TradingProperties verwendet.
-            // Dies ist primär für Abwärtskompatibilität oder einfache Tests.
+            // Fallback auf Standardwerte, wenn gar keine Indikatoren konfiguriert sind
+            anyIndicatorActive = true;
             double rsi = rsiIndicator.calculate(candles, idx, properties.getRsiPeriod());
             double sma = smaIndicator.calculate(candles, idx, properties.getSmaPeriod());
             
-            // Standard-RSI-Logik
             boolean rsiBuy = rsi <= properties.getRsiOversold();
             boolean rsiSell = rsi >= properties.getRsiOverbought();
-            
-            // Standard-SMA-Logik
             boolean smaBuy = close > sma;
             boolean smaSell = close < sma;
 
@@ -165,11 +163,10 @@ public class HybridSignalEngine implements SignalEngine {
         }
 
         // 3. Finale Entscheidung: Konsens-Logik
-        // Ein Signal wird nur generiert, wenn alle relevanten Bedingungen erfüllt sind.
         SignalType signal = SignalType.HOLD;
-        if (allIndicatorsBuy && mlConfirmsBuy) {
+        if (anyIndicatorActive && allIndicatorsBuy && mlConfirmsBuy) {
             signal = SignalType.BUY;
-        } else if (allIndicatorsSell && mlConfirmsSell) {
+        } else if (anyIndicatorActive && allIndicatorsSell && mlConfirmsSell) {
             signal = SignalType.SELL;
         }
 

@@ -19,7 +19,7 @@ export default function TradesTable({ trades }) {
               <th>Seite</th>
               <th>Preis</th>
               <th>Menge</th>
-              <th>GuV</th> {/* Gewinn und Verlust */}
+              <th title="Gewinn und Verlust">GuV</th>
               <th>Kapital</th>
             </tr>
           </thead>

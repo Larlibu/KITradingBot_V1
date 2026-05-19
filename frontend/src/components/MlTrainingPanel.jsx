@@ -149,13 +149,16 @@ export default function MlTrainingPanel() {
         </button>
         <div style={{ marginTop: '10px' }}>
           {dataUpdateStatus === "running" && <p style={{ color: '#fbbf24', fontSize: '0.85rem' }}>⏳ Lade Daten von Binance...</p>}
-          {dataUpdateStatus === "success" && <p style={{ color: '#4ade80', fontSize: '0.85rem' }}>✅ Daten aktuell! ({lastDataUpdate})</p>}
           {dataUpdateStatus === "error" && (
               <div style={{ color: '#f87171', fontSize: '0.85rem' }}>
                   <p>❌ Fehler beim Daten-Update:</p>
                   <p style={{ opacity: 0.8 }}>{dataUpdateErrorMessage}</p>
               </div>
           )}
+          {/* Zeigt immer das Datum des letzten Updates an */}
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginTop: '5px' }}>
+            Letztes Update: <span style={{ color: '#4ade80' }}>{lastDataUpdate || "Unbekannt"}</span>
+          </p>
         </div>
       </div>
 
@@ -175,13 +178,16 @@ export default function MlTrainingPanel() {
         </button>
         <div style={{ marginTop: '10px' }}>
           {trainingStatus === "running" && <p style={{ color: '#fbbf24', fontSize: '0.85rem' }}>⏳ KI lernt aus historischen Daten...</p>}
-          {trainingStatus === "success" && <p style={{ color: '#4ade80', fontSize: '0.85rem' }}>✅ Modell ist auf dem neuesten Stand! ({lastTrainingRun})</p>}
           {trainingStatus === "error" && (
               <div style={{ color: '#f87171', fontSize: '0.85rem' }}>
                   <p>❌ Fehler beim Training:</p>
                   <p style={{ opacity: 0.8 }}>{trainingErrorMessage}</p>
               </div>
           )}
+          {/* Zeigt immer das Datum des letzten Trainings an */}
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginTop: '5px' }}>
+            Letztes Training: <span style={{ color: '#4ade80' }}>{lastTrainingRun || "Unbekannt"}</span>
+          </p>
         </div>
       </div>
     </section>

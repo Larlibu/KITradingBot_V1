@@ -21,6 +21,7 @@ export default function AppView({
   currentPrice,
   currentSignal,
   currentConfidence,
+  currentTimestamp,
   activeIndicatorValues,
   serverStatus,
   signalSnapshot,
@@ -69,6 +70,7 @@ export default function AppView({
         indicators={activeIndicatorValues}
         serverStatus={serverStatus}
         viewMode={viewMode}
+        timestamp={currentTimestamp}
       />
 
       {/* Hauptbereich: Sidebar/Chart/Replay */}

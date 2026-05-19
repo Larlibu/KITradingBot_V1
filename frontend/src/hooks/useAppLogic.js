@@ -92,6 +92,11 @@ export function useAppLogic() {
     ? (replaySignal?.prediction?.confidence ?? 0)
     : (liveConsensus?.prediction?.confidence ?? signalSnapshot?.prediction?.confidence ?? 0);
 
+  // Abgeleiteter Zeitstempel für Dashboard-Karten.
+  const currentTimestamp = isReplayMode
+    ? (replaySignal?.timestamp ?? marketData[replayIndex]?.timestamp)
+    : (signalSnapshot?.timestamp ?? marketData[marketData.length - 1]?.timestamp);
+
   // Normalisiert darzustellende Indikatorwerte je nach Modus (Replay vs. Live-Snapshot).
   const activeIndicatorValues = useMemo(() => {
     if (isReplayMode) {
@@ -148,6 +153,7 @@ export function useAppLogic() {
     currentPrice,
     currentSignal,
     currentConfidence,
+    currentTimestamp,
     activeIndicatorValues,
     indicatorTemplates: INDICATOR_TEMPLATES
   };
