@@ -2,85 +2,76 @@
 Modul für ein einfaches heuristisches Klassifikationsmodell.
 
 Dieses Modell dient als leichter Fallback oder als Basislinie für das ML-Modell.
-Es implementiert eine Scikit-learn-ähnliche Schnittstelle (`fit`, `predict`, `predict_proba`),
-um austauschbar mit echten ML-Modellen verwendet werden zu können.
+Es trifft Entscheidungen basierend auf festen technischen Regeln statt gelernten Mustern.
 """
+from typing import List
 
 class HeuristicClassifier:
     """
-    Ein leichter heuristischer Klassifikator mit einer Scikit-learn-ähnlichen Schnittstelle.
-    Das Modell trifft Vorhersagen basierend auf vordefinierten Regeln, die technische Indikatoren nutzen.
-
-    Die erwartete Reihenfolge der Features im Eingabevektor `x` ist:
-    [0: close, 1: sma, 2: rsi, 3: close_minus_sma]
+    Ein heuristischer Klassifikator mit einer Scikit-learn-kompatiblen Schnittstelle.
+    Nutzt RSI und Momentum (Close vs SMA), um eine Kauf/Verkauf-Wahrscheinlichkeit zu schätzen.
     """
 
     def fit(self, x, y) -> "HeuristicClassifier":
         """
-        Die Fit-Methode für den HeuristicClassifier.
-        Da dieses Modell keine Parameter lernt, tut diese Methode nichts und gibt sich selbst zurück.
-
-        Args:
-            x: Trainingsdaten (Features).
-            y: Zielvariablen (Labels).
-
-        Returns:
-            HeuristicClassifier: Die Instanz des Klassifikators.
+        Fit-Methode (Interface-Kompatibilität).
+        Da die Regeln fest sind, findet kein Training statt.
         """
         return self
 
     def predict(self, x: List[List[float]]) -> List[int]:
         """
-        Führt Vorhersagen für eine Liste von Feature-Vektoren durch.
-        Gibt 1 für 'STEIGT' und 0 für 'FÄLLT' zurück, basierend auf einer 50%-Wahrscheinlichkeitsschwelle.
-
-        Args:
-            x (List[List[float]]): Eine Liste von Feature-Vektoren.
-
-        Returns:
-            List[int]: Eine Liste der vorhergesagten Klassen (0 oder 1).
+        Sagt die Klasse voraus (1 für STEIGT, 0 für FÄLLT).
+        Schwellenwert ist 0.5.
         """
-        # Ruft die Wahrscheinlichkeiten ab und konvertiert sie in Klassen-Labels
         probs = self.predict_proba(x)
         return [1 if row[1] >= 0.5 else 0 for row in probs]
 
     def predict_proba(self, x: List[List[float]]) -> List[List[float]]:
         """
-        Berechnet die Wahrscheinlichkeiten für jede Klasse (0: FÄLLT, 1: STEIGT)
-        basierend auf heuristischen Regeln.
-
-        Die Heuristik kombiniert den Momentum-Score (aus `close_minus_sma`)
-        und den RSI-Score.
-
+        Berechnet Wahrscheinlichkeiten basierend auf einer gewichteten Heuristik.
+        
+        Logik:
+        1. Momentum Score: Wie weit ist der Preis vom SMA entfernt? (Gedeckelt auf +/- 250 Einheiten)
+        2. RSI Score: Ist der RSI über- oder unterverkauft? (Skaliert auf +/- 1.0)
+        
+        Kombination: 65% Momentum + 35% RSI
+        
         Args:
-            x (List[List[float]]): Eine Liste von Feature-Vektoren.
-
+            x: Liste von Feature-Vektoren. 
+               Erwartet an Index 2 den RSI und an Index 3 die Diff (Close - SMA).
+        
         Returns:
-            List[List[float]]: Eine Liste von Wahrscheinlichkeits-Paaren [P(FÄLLT), P(STEIGT)].
+            Liste von Wahrscheinlichkeitspaaren [P(FÄLLT), P(STEIGT)].
         """
         probabilities: List[List[float]] = []
+        
         for row in x:
-            # Extrahiert die relevanten Features
-            # close = float(row[0]) # Nicht direkt für die Heuristik verwendet
-            # sma = float(row[1])   # Nicht direkt für die Heuristik verwendet
+            # Relevante Features extrahieren
+            # Index 2 = RSI (0-100)
+            # Index 3 = close_minus_sma (Differenz in USDT)
             rsi = float(row[2])
             close_minus_sma = float(row[3])
 
-            # Berechnet einen Momentum-Score basierend auf der Differenz zwischen Close und SMA.
-            # Normalisiert den Wert zwischen -1.0 und 1.0.
+            # --- 1. Momentum Berechnung ---
+            # Wir normalisieren den Abstand zum SMA auf einen Bereich von -1 bis 1.
+            # Ein Abstand von 250 USDT wird hier als Maximum für die Heuristik angenommen.
             momentum_score = max(-1.0, min(1.0, close_minus_sma / 250.0))
 
-            # Berechnet einen RSI-Score, der anzeigt, ob der RSI überkauft/überverkauft ist.
-            # Normalisiert den Wert zwischen -1.0 und 1.0 (RSI 50 = 0, RSI 100 = 1, RSI 0 = -1).
+            # --- 2. RSI Berechnung ---
+            # Wir zentrieren den RSI um 50 (Neutral) und skalieren auf -1 bis 1.
+            # RSI 100 -> 1.0, RSI 0 -> -1.0, RSI 50 -> 0.0
             rsi_score = max(-1.0, min(1.0, (rsi - 50.0) / 50.0))
 
-            # Kombiniert die Scores heuristisch. Momentum wird stärker gewichtet.
+            # --- 3. Score Kombination ---
+            # Trendfolge (Momentum) wird höher gewichtet als der Oszillator (RSI).
             up_score = 0.65 * momentum_score + 0.35 * rsi_score
 
-            # Konvertiert den kombinierten Score in eine Wahrscheinlichkeit zwischen 0.01 und 0.99.
-            # Ein Score von -1.0 ergibt 0.01, ein Score von 1.0 ergibt 0.99.
+            # Umwandlung des Scores (-1 bis 1) in eine Wahrscheinlichkeit (0 bis 1).
+            # Ein Score von 0 ergibt 0.5 Wahrscheinlichkeit.
             up_prob = max(0.01, min(0.99, (up_score + 1.0) / 2.0))
 
-            # Die Wahrscheinlichkeit für 'FÄLLT' ist 1 - P('STEIGT').
+            # Ergebnis-Paar für Scikit-Learn Kompatibilität [Down, Up]
             probabilities.append([1.0 - up_prob, up_prob])
+            
         return probabilities

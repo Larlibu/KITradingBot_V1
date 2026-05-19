@@ -1,8 +1,8 @@
 """
 Modul zum Herunterladen historischer Marktdaten von der Binance API.
 
-Stellt Funktionen bereit, um Candlestick-Daten für ein bestimmtes Symbol
-und Intervall über einen definierten Zeitraum abzurufen und lokal zu speichern.
+Stellt Funktionen bereit, um Candlestick-Daten (OHLCV) für ein bestimmtes Symbol
+und Intervall über einen definierten Zeitraum abzurufen und lokal als CSV zu speichern.
 """
 
 import requests
@@ -13,18 +13,13 @@ import os
 from pathlib import Path
 from typing import List, Dict, Any
 
-# --- Konfiguration ---
-# Das Handelssymbol, für das Daten heruntergeladen werden sollen.
+# --- Statische Konfiguration ---
 SYMBOL: str = "BTCUSDT"
-# Das Verzeichnis, in dem die heruntergeladenen Daten gespeichert werden.
 DATA_DIR: Path = Path(__file__).resolve().parent / "data"
-# Die Basis-URL der Binance API für Klines (Candlestick-Daten).
 BINANCE_URL: str = "https://api.binance.com/api/v3/klines"
-# Das maximale Limit an Kerzen pro API-Anfrage (Binance-Limit).
-LIMIT: int = 1000
+LIMIT: int = 1000 # Binance erlaubt max 1000 Kerzen pro Request
 
-# Spaltennamen für die von der Binance API zurückgegebenen Daten.
-# Diese Reihenfolge ist fest von der Binance API vorgegeben.
+# Spaltendefinition der Binance API Antwort
 COLUMNS: List[str] = [
     "open_time", "open", "high", "low", "close", "volume",
     "close_time", "quote_volume", "trades",
@@ -33,62 +28,76 @@ COLUMNS: List[str] = [
 
 def fetch_binance_data(symbol: str, interval: str, lookback_days: int) -> Path:
     """
-    Lädt historische Candlestick-Daten von der Binance API für ein gegebenes Symbol und Intervall.
-    Die Daten werden in einer CSV-Datei im 'data'-Verzeichnis gespeichert.
+    Lädt historische Candlestick-Daten von Binance herunter.
+    Unterstützt Paging, falls mehr als 1000 Kerzen angefordert werden.
 
     Args:
-        symbol (str): Das Handelspaar (z.B. "BTCUSDT").
-        interval (str): Das Zeitintervall der Kerzen (z.B. "1h" für 1 Stunde, "1d" für 1 Tag).
-        lookback_days (int): Die Anzahl der Tage in die Vergangenheit, für die Daten geladen werden sollen.
+        symbol: Handelspaar (z.B. "BTCUSDT").
+        interval: Zeitrahmen (z.B. "1h", "1m").
+        lookback_days: Wie viele Tage in die Vergangenheit geladen werden sollen.
 
     Returns:
-        Path: Der Pfad zur lokal gespeicherten CSV-Datei mit den Rohdaten.
+        Path: Pfad zur gespeicherten CSV-Datei.
     """
-    # Sicherstellen, dass das Datenverzeichnis existiert.
+    # Sicherstellen, dass der Speicherort existiert
     os.makedirs(DATA_DIR, exist_ok=True)
 
     all_data: List[List[Any]] = []
 
-    # Berechnet den Startzeitpunkt (in Millisekunden seit der Epoche) basierend auf lookback_days.
+    # Zeitfenster berechnen (Binance erwartet Millisekunden)
     since: datetime = datetime.utcnow() - timedelta(days=lookback_days)
     start_ms: int = int(since.timestamp() * 1000)
-    # Aktueller Endzeitpunkt (in Millisekunden seit der Epoche).
     end_ms: int = int(datetime.utcnow().timestamp() * 1000)
 
-    print(f"Lade {interval}-Daten für {symbol} von Binance API...")
+    print(f"Starte Download: {symbol} [{interval}] für die letzten {lookback_days} Tage...")
 
-    # Schleife, um Daten in Chunks von LIMIT Kerzen abzurufen, bis der Endzeitpunkt erreicht ist.
+    # Paging-Schleife
     while start_ms < end_ms:
-        # Parameter für die API-Anfrage.
-        params: Dict[str, Any] = {"symbol": symbol, "interval": interval, "startTime": start_ms, "limit": LIMIT}
+        params: Dict[str, Any] = {
+            "symbol": symbol,
+            "interval": interval,
+            "startTime": start_ms,
+            "limit": LIMIT
+        }
 
-        # Führt die GET-Anfrage an die Binance API aus.
-        resp: requests.Response = requests.get(BINANCE_URL, params=params, timeout=10)
-        resp.raise_for_status()  # Löst eine HTTPError für schlechte Antworten (4xx oder 5xx) aus.
+        try:
+            # API Request absetzen
+            resp: requests.Response = requests.get(BINANCE_URL, params=params, timeout=15)
+            resp.raise_for_status()
+            
+            chunk: List[List[Any]] = resp.json()
+            if not chunk:
+                break # Keine weiteren Daten verfügbar
+            
+            all_data.extend(chunk)
+            
+            # Startzeit für den nächsten Chunk ist das Ende des aktuellen + 1ms
+            start_ms = chunk[-1][0] + 1
+            
+            # Rate-Limiting beachten (Binance ist streng)
+            time.sleep(0.1)
+            
+            if len(all_data) % 5000 == 0:
+                print(f"... {len(all_data)} Kerzen geladen ...")
 
-        chunk: List[List[Any]] = resp.json()
-        if not chunk:
-            break  # Keine weiteren Daten verfügbar, Schleife beenden.
+        except Exception as e:
+            print(f"Fehler beim Abruf der Daten: {e}")
+            break
 
-        all_data.extend(chunk)
-        # Aktualisiert den Startzeitpunkt für die nächste Anfrage, um Duplikate zu vermeiden.
-        start_ms = chunk[-1][0] + 1
-
-        # Kurze Pause, um das Rate-Limit der Binance API nicht zu überschreiten.
-        time.sleep(0.1)
-
-    # Erstellt einen Pandas DataFrame aus den gesammelten Daten.
+    # --- Datenverarbeitung ---
     df: pd.DataFrame = pd.DataFrame(all_data, columns=COLUMNS)
 
-    # Konvertiert den 'open_time'-Timestamp in ein lesbares Datumsformat.
+    # Timestamp in lesbares Datum konvertieren
     df["open_time"] = pd.to_datetime(df["open_time"], unit="ms")
 
-    # Konvertiert relevante Spalten in den float-Datentyp.
-    for col in ["open", "high", "low", "close", "volume"]:
+    # Numerische Werte als Float sicherstellen
+    numeric_cols = ["open", "high", "low", "close", "volume"]
+    for col in numeric_cols:
         df[col] = df[col].astype(float)
 
-    # Speichert den DataFrame als CSV-Datei.
+    # Speichern der Rohdaten
     output_file: Path = DATA_DIR / f"raw_{interval}.csv"
     df.to_csv(output_file, index=False)
-    print(f"Daten heruntergeladen und gespeichert: {output_file} ({len(df)} Zeilen)")
+    
+    print(f"Download abgeschlossen. Datei gespeichert: {output_file} ({len(df)} Zeilen)")
     return output_file

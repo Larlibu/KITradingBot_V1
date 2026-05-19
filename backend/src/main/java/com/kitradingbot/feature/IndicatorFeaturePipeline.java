@@ -1,5 +1,6 @@
 package com.kitradingbot.feature;
 
+import com.kitradingbot.indicator.EmaIndicator;
 import com.kitradingbot.indicator.RsiIndicator;
 import com.kitradingbot.indicator.SmaIndicator;
 import com.kitradingbot.model.Candle;
@@ -10,103 +11,134 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 
 /**
- * Implementierung der {@link FeaturePipeline} basierend auf technischen Indikatoren.
- * Diese Pipeline ist dafür verantwortlich, aus einer Liste von {@link Candle}-Objekten
- * einen numerischen Feature-Vektor zu erstellen, der als Eingabe für das Machine-Learning-Modell dient.
- * Die Indikatorparameter (z.B. Periodenlängen) können dynamisch vom Frontend übergeben werden.
+ * Implementierung der {@link FeaturePipeline} fuer ML-Features.
+ * Die Feature-Reihenfolge muss exakt mit dem Python-Training konsistent sein.
  */
 @Component
 public class IndicatorFeaturePipeline implements FeaturePipeline {
-    /**
-     * Namen der in dieser Pipeline enthaltenen Features in der Reihenfolge,
-     * in der sie im Feature-Vektor erscheinen. Diese Reihenfolge muss mit der
-     * Erwartung des ML-Modells übereinstimmen.
-     */
-    private static final List<String> FEATURE_NAMES = List.of("close", "sma", "rsi", "close_minus_sma");
-    
+    private static final List<String> FEATURE_NAMES = List.of(
+            "close",
+            "sma",
+            "rsi",
+            "close_minus_sma",
+            "return_1",
+            "return_3",
+            "volatility_6",
+            "close_minus_ema"
+    );
+
+    private static final int DEFAULT_SMA_LEN = 20;
+    private static final int DEFAULT_RSI_LEN = 14;
+    private static final int DEFAULT_EMA_LEN = 21;
+    private static final int VOLATILITY_WINDOW = 6;
+
     private final SmaIndicator smaIndicator;
     private final RsiIndicator rsiIndicator;
+    private final EmaIndicator emaIndicator;
 
-    /**
-     * Konstruktor für die IndicatorFeaturePipeline.
-     * Spring injiziert automatisch die benötigten Indikator-Implementierungen.
-     *
-     * @param smaIndicator Die Implementierung des {@link SmaIndicator}.
-     * @param rsiIndicator Die Implementierung des {@link RsiIndicator}.
-     */
-    public IndicatorFeaturePipeline(SmaIndicator smaIndicator, RsiIndicator rsiIndicator) {
+    public IndicatorFeaturePipeline(
+            SmaIndicator smaIndicator,
+            RsiIndicator rsiIndicator,
+            EmaIndicator emaIndicator
+    ) {
         this.smaIndicator = smaIndicator;
         this.rsiIndicator = rsiIndicator;
+        this.emaIndicator = emaIndicator;
     }
 
-    /**
-     * Erstellt den Feature-Vektor für die aktuellste Kerze in der Liste.
-     * Der Vektor enthält den Schlusskurs, SMA, RSI und die Differenz zwischen Schlusskurs und SMA.
-     * Die Perioden für SMA und RSI werden dynamisch aus der übergebenen Indikatorkonfiguration extrahiert.
-     *
-     * @param candles    Eine Liste von {@link Candle}-Objekten, die die historischen Marktdaten darstellen.
-     *                   Die letzte Kerze in dieser Liste ist die aktuelle Kerze, für die Features berechnet werden.
-     * @param indicators Eine Liste von {@link IndicatorConfig}-Objekten, die die Konfiguration der
-     *                   zu verwendenden Indikatoren definieren.
-     * @return Ein `double`-Array mit den Werten [Schlusskurs, SMA-Wert, RSI-Wert, Differenz Schluss-SMA].
-     * @throws TradingBotException wenn nicht genügend Marktdaten vorhanden sind.
-     */
     @Override
     public double[] buildFeatures(List<Candle> candles, List<IndicatorConfig> indicators) {
         if (candles == null || candles.isEmpty()) {
             throw new TradingBotException("Keine Marktdaten vorhanden, um den Feature-Vektor zu erstellen.");
         }
-        
+
         int idx = candles.size() - 1;
         double close = candles.get(idx).close();
-        
-        // Standardwerte für Indikatorperioden, falls keine dynamischen Konfigurationen übergeben werden
-        int smaLen = 20;
-        int rsiLen = 14;
 
-        // Extrahiere dynamische Perioden aus der übergebenen Indikatorkonfiguration
+        int smaLen = DEFAULT_SMA_LEN;
+        int rsiLen = DEFAULT_RSI_LEN;
+        int emaLen = DEFAULT_EMA_LEN;
+
         if (indicators != null) {
             for (IndicatorConfig config : indicators) {
                 if ("SMA".equalsIgnoreCase(config.type())) {
-                    smaLen = config.getIntParam("length", 20);
+                    smaLen = config.getIntParam("length", DEFAULT_SMA_LEN);
                 } else if ("RSI".equalsIgnoreCase(config.type())) {
-                    rsiLen = config.getIntParam("length", 14);
+                    rsiLen = config.getIntParam("length", DEFAULT_RSI_LEN);
+                } else if ("EMA".equalsIgnoreCase(config.type())) {
+                    emaLen = config.getIntParam("length", DEFAULT_EMA_LEN);
                 }
-                // Hier könnten weitere Indikatoren für die Feature-Berechnung hinzugefügt werden,
-                // falls das ML-Modell diese als Features benötigt.
             }
         }
 
-        // Berechne die Indikatoren mit den (dynamischen oder Standard-)Perioden
         double sma = smaIndicator.calculate(candles, idx, smaLen);
         double rsi = rsiIndicator.calculate(candles, idx, rsiLen);
-        
-        // Erstelle den Feature-Vektor. Die Reihenfolge muss 1:1 mit der Erwartung des ML-Modells übereinstimmen.
-        return new double[]{close, sma, rsi, close - sma};
+        double ema = emaIndicator.calculate(candles, idx, emaLen);
+
+        double return1 = calculateReturn(candles, idx, 1);
+        double return3 = calculateReturn(candles, idx, 3);
+        double volatility6 = calculateRollingVolatility(candles, idx, VOLATILITY_WINDOW);
+
+        return new double[]{
+                close,
+                sma,
+                rsi,
+                close - sma,
+                return1,
+                return3,
+                volatility6,
+                close - ema
+        };
     }
 
-    /**
-     * Gibt die Liste der Namen der Features zurück, die von dieser Pipeline generiert werden.
-     *
-     * @return Eine {@link List} von Strings, die die Namen der Features enthält.
-     */
     @Override
     public List<String> featureNames() {
         return FEATURE_NAMES;
     }
 
-    /**
-     * Berechnet die minimale Anzahl an Kerzen, die benötigt werden, um alle Indikatoren
-     * (SMA und RSI in diesem Fall) für die Feature-Berechnung zu initialisieren.
-     * Ein konservativer Wert von 30 wird verwendet, um sicherzustellen, dass genügend Daten
-     * für die meisten gängigen Perioden vorhanden sind.
-     *
-     * @return Die minimale Anzahl von Kerzen (als `int`) für den Warmup.
-     */
     @Override
     public int warmupPeriod() {
-        // Ein konservativer Warmup-Wert, der die meisten gängigen SMA/RSI-Perioden abdeckt.
-        // Dies stellt sicher, dass die Indikatoren stabile Werte liefern können.
+        // Deckt SMA/RSI/EMA plus stabile Volatilitaetsberechnung ab.
         return 30;
+    }
+
+    private double calculateReturn(List<Candle> candles, int endIndex, int lookback) {
+        if (endIndex < lookback) {
+            return 0.0;
+        }
+        double previous = candles.get(endIndex - lookback).close();
+        if (previous == 0.0) {
+            return 0.0;
+        }
+        return (candles.get(endIndex).close() / previous) - 1.0;
+    }
+
+    private double calculateRollingVolatility(List<Candle> candles, int endIndex, int window) {
+        int start = Math.max(1, endIndex - window + 1);
+        int n = endIndex - start + 1;
+        if (n <= 1) {
+            return 0.0;
+        }
+
+        double sum = 0.0;
+        double sumSq = 0.0;
+        int count = 0;
+        for (int i = start; i <= endIndex; i++) {
+            double prevClose = candles.get(i - 1).close();
+            if (prevClose == 0.0) {
+                continue;
+            }
+            double r = (candles.get(i).close() / prevClose) - 1.0;
+            sum += r;
+            sumSq += r * r;
+            count++;
+        }
+
+        if (count <= 1) {
+            return 0.0;
+        }
+        double mean = sum / count;
+        double variance = Math.max(0.0, (sumSq / count) - (mean * mean));
+        return Math.sqrt(variance);
     }
 }

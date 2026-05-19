@@ -12,12 +12,14 @@ const MAX_PARAM = 1_000_000;
 
 /**
  * Konfigurationseinstellungen für die Machine Learning Integration.
- * @type {Readonly<{confidenceThreshold: number, smaPeriod: number, rsiPeriod: number}>}
+ * @type {Readonly<{confidenceThreshold: number, smaPeriod: number, rsiPeriod: number, emaPeriod: number, volatilityWindow: number}>}
  */
 export const ML_CONFIG = Object.freeze({
   confidenceThreshold: 0.6, // Mindestkonfidenz der KI, damit ihr Signal berücksichtigt wird.
   smaPeriod: 14, // SMA-Periode für die ML-Feature-Berechnung.
-  rsiPeriod: 14  // RSI-Periode für die ML-Feature-Berechnung.
+  rsiPeriod: 14,
+  emaPeriod: 21,
+  volatilityWindow: 6
 });
 
 /**
@@ -346,8 +348,14 @@ export function estimateWarmupIndex(indicators, useMlVote) {
     index = Math.max(index, minIndexForIndicator(indicator));
   }
   if (useMlVote) {
-    // Berücksichtigt die Warmup-Perioden für die ML-Features (SMA und RSI).
-    index = Math.max(index, Math.max(ML_CONFIG.smaPeriod - 1, ML_CONFIG.rsiPeriod));
+    // Berücksichtigt die Warmup-Perioden für alle ML-Features.
+    index = Math.max(
+      index,
+      ML_CONFIG.smaPeriod - 1,
+      ML_CONFIG.rsiPeriod,
+      ML_CONFIG.emaPeriod - 1,
+      ML_CONFIG.volatilityWindow
+    );
   }
   return index;
 }
@@ -543,12 +551,12 @@ export function mlVoteFromPrediction(prediction, threshold = ML_CONFIG.confidenc
   if (prediction.confidence < threshold) {
     return "HOLD";
   }
-  // Abgleich mit den Labels vom Python ML-Service (UP/DOWN oder STEIGT/FÄLLT)
+  // Abgleich mit den Labels vom Python ML-Service (UP/DOWN oder STEIGT/FAELLT)
   const label = String(prediction.label).toUpperCase();
   if (label === "UP" || label === "STEIGT") {
     return "BUY";
   }
-  if (label === "DOWN" || label === "FÄLLT") {
+  if (label === "DOWN" || label === "FÄLLT" || label === "FAELLT") {
     return "SELL";
   }
   return "HOLD";
@@ -602,15 +610,52 @@ export function buildConsensus(votes, requireMl) {
  */
 export function buildMlFeatures(candles, index) {
   const close = candles[index].close;
-  // Berechnet SMA und RSI für die ML-Features (basierend auf ML_CONFIG).
+  // Berechnet Kernindikatoren für die ML-Features (basierend auf ML_CONFIG).
   const sma = calcSma(candles, index, ML_CONFIG.smaPeriod);
   const rsi = calcRsi(candles, index, ML_CONFIG.rsiPeriod);
+  const ema = calcEma(candles, index, ML_CONFIG.emaPeriod);
 
-  if (sma == null || rsi == null) {
+  if (sma == null || rsi == null || ema == null) {
     return null;
   }
+
+  const prevClose1 = candles[index - 1]?.close;
+  const prevClose3 = candles[index - 3]?.close;
+  if (!prevClose1 || !prevClose3) {
+    return null;
+  }
+
+  const return1 = close / prevClose1 - 1;
+  const return3 = close / prevClose3 - 1;
+
+  const start = Math.max(1, index - ML_CONFIG.volatilityWindow + 1);
+  const recentReturns = [];
+  for (let i = start; i <= index; i += 1) {
+    const prev = candles[i - 1]?.close;
+    const curr = candles[i]?.close;
+    if (!prev || !curr) {
+      continue;
+    }
+    recentReturns.push(curr / prev - 1);
+  }
+  if (recentReturns.length < 2) {
+    return null;
+  }
+  const mean = avg(recentReturns);
+  const variance = recentReturns.reduce((sum, r) => sum + (r - mean) ** 2, 0) / recentReturns.length;
+  const volatility6 = Math.sqrt(variance);
+
   // Der Feature-Vektor muss die gleiche Reihenfolge wie im Python-ML-Service haben.
-  const features = [close, sma, rsi, close - sma];
+  const features = [
+    close,
+    sma,
+    rsi,
+    close - sma,
+    return1,
+    return3,
+    volatility6,
+    close - ema
+  ];
 
   // Prüft auf NaN-Werte in den Features.
   if (features.some((value) => !Number.isFinite(value))) {

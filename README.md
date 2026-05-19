@@ -1,73 +1,85 @@
 # KITradingBot
 
-KITradingBot ist eine KI-gestützte Krypto-Trading-Plattform mit:
+KITradingBot ist eine lokale Trading- und Analyseplattform fuer Krypto-Marktdaten.  
+Die Anwendung kombiniert technische Indikatoren mit optionaler ML-Vorhersage, inklusive Replay, Backtesting und simuliertem Trading.
 
-- Java Spring Boot Backend (MVC + modulare Architektur)
-- Python ML-Service für Training und Inferenz
-- React Dashboard Frontend
-- Backtesting und simuliertem Trade-Execution-Flow
-
-## Projektstruktur (Monorepo)
+## Architektur (Monorepo)
 
 ```text
 KITradingBot/
-  backend/      # Spring Boot REST-API, Signal- und Trading-Engine
-  ml-service/   # FastAPI Vorhersageservice + Trainingsskripte
-  frontend/     # React Dashboard (Vite)
+  backend/       Spring Boot REST-API (Signale, Backtest, Trading)
+  ml-service/    FastAPI ML-Service (Predict, Training, Datenupdate)
+  frontend/      React/Vite Dashboard
+  dokumentation/ Arc42, ADRs, Projektlogs
 ```
 
-## Schnellstart (ein Befehl)
+## Voraussetzungen
 
-Im Projekt-Root ausführen:
+- Java 21
+- Node.js + npm
+- Python 3.10+
 
-- `powershell -ExecutionPolicy Bypass -File .\start-all.ps1`
-- oder per Doppelklick: `start-all.cmd`
+## Schnellstart
 
-Optional ohne Training:
+Im Projekt-Root:
 
-- `powershell -ExecutionPolicy Bypass -File .\start-all.ps1 -NoTrain`
+- `start-all.cmd`
+- oder `powershell -ExecutionPolicy Bypass -File .\start-all.ps1`
 
-Optional mit Pause am Ende (Fenster bleibt offen):
+Danach:
+- Frontend: `http://localhost:5173`
+- Backend: `http://localhost:8080`
+- ML-Service: `http://localhost:8000`
 
-- `powershell -ExecutionPolicy Bypass -File .\start-all.ps1 -PauseOnExit`
+Logs: `.run/`
 
-Das Script startet automatisch:
+## Stoppen
 
-- ML-Service auf `http://localhost:8000`
-- Backend auf `http://localhost:8080`
-- Frontend auf `http://localhost:5173`
+Im Projekt-Root:
 
-Logs liegen unter `.run/`.
-
-## Anwendung beenden
-
-Im Projekt-Root ausführen:
-
-- `powershell -ExecutionPolicy Bypass -File .\stop-all.ps1`
-- oder per Doppelklick: `stop-all.cmd`
-
-Optional mit Pause am Ende:
-
-- `powershell -ExecutionPolicy Bypass -File .\stop-all.ps1 -PauseOnExit`
+- `stop-all.cmd`
+- oder `powershell -ExecutionPolicy Bypass -File .\stop-all.ps1`
 
 ## Manueller Start (3 Terminals)
 
-1. ML-Service starten:
+1. ML-Service
    - `cd ml-service`
-   - `python train.py`
+   - `python train.py` (optional)
    - `python -m uvicorn api:app --host 127.0.0.1 --port 8000`
-2. Backend starten:
+2. Backend
    - `cd backend`
    - `mvn spring-boot:run`
-3. Frontend starten:
+3. Frontend
    - `cd frontend`
    - `npm.cmd install`
    - `npm.cmd run dev -- --host 127.0.0.1 --port 5173`
 
-## Wichtige REST-Endpunkte
+## Kernfunktionen
+
+- Live-Signal mit Indikator-Konsens (`BUY`/`SELL`/`HOLD`)
+- Optionaler KI-Konsens
+- Simulierte Trade-Ausfuehrung (Paper Trading)
+- Backtesting mit Batch-ML-Predictions
+- Visuelles Replay im Analysemodus
+- ML-Datenupdate und Modelltraining ueber UI
+
+## Wichtige API-Endpunkte
 
 - `GET /api/market`
-- `GET /api/signal`
-- `POST /api/predict`
+- `POST /api/signal`
+- `POST /api/backtest`
 - `GET /api/trades`
-- `GET /api/backtest`
+- `POST /api/trades/start`
+- `POST /api/trades/stop`
+- `POST /api/trades/reset`
+- `POST /api/predict`
+- `POST /api/predict/train`
+- `GET /api/predict/train/status`
+- `POST /api/predict/data/update`
+- `GET /api/predict/data/status`
+
+## Dokumentation
+
+- Benutzerhandbuch: [BENUTZERHANDBUCH.md](./BENUTZERHANDBUCH.md)
+- Architektur (arc42): [dokumentation/ARC42.md](./dokumentation/ARC42.md)
+- ADRs: [dokumentation/adr/README.md](./dokumentation/adr/README.md)

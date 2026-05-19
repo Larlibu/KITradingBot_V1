@@ -79,8 +79,11 @@ public class HybridSignalEngine implements SignalEngine {
 
         if (useMl && prediction != null) {
             boolean confident = prediction.confidence() >= properties.getMlConfidenceThreshold();
-            boolean isUp = "STEIGT".equalsIgnoreCase(prediction.label());
-            boolean isDown = "FÄLLT".equalsIgnoreCase(prediction.label());
+            String predictionLabel = prediction.label();
+            boolean isUp = "STEIGT".equalsIgnoreCase(predictionLabel) || "UP".equalsIgnoreCase(predictionLabel);
+            boolean isDown = "FÄLLT".equalsIgnoreCase(predictionLabel)
+                    || "FAELLT".equalsIgnoreCase(predictionLabel)
+                    || "DOWN".equalsIgnoreCase(predictionLabel);
 
             // KI bestätigt nur, wenn sie konfident ist und das entsprechende Signal gibt
             mlConfirmsBuy = confident && isUp;

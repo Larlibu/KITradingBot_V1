@@ -44,16 +44,26 @@ Dieses Dokument fasst die Phasen der Entwicklung zusammen, in der der Fokus auf 
 
 ---
 
-## 🧠 3. Wissensdatenbank & Erklärungen
+## 🚀 3. Durchgeführte Arbeiten & Refactorings (Session 4)
 
-### Warum nutzt das System React- UND Java-Logik?
-React (Frontend) berechnet die Indikatoren für das visuelle Replay lokal im Browser, um sofortige Interaktion ohne Netzwerk-Verzögerung zu ermöglichen. Java (Backend) übernimmt die performante Massenberechnung (Backtest) und den stabilen Live-Handel. Durch die Synchronisation nutzen beide nun identische Parameter ("What you see is what you get").
-
-### Warum wurde von GET auf POST umgestellt?
-Um die kompletten Indikator-Listen (Arrays mit Objekten und Parametern) vom Browser an den Server zu senden, ist das POST-Verfahren sicherer und flexibler als die Limitierung durch URL-Parameter (GET).
-
-### Die Rolle der Batch-Vorhersage
-Netzwerk-Overhead ist bei vielen kleinen Anfragen der größte Zeitfresser. Durch das Bündeln aller 500 Kerzen in eine Anfrage wird die KI-Analyse massiv beschleunigt und System-Timeouts werden vermieden.
+### Architektur-Vertiefung & Dokumentation
+*   **Wissens-Transfer**: Detaillierte Analyse und Dokumentation der Beziehung zwischen Frontend-Logik (JavaScript) und Backend-Logik (Java). 
+*   **Dynamische Parameter-Übergabe**: Validierung des Workflows, bei dem das Frontend Konfigurationsobjekte (JSON) per POST an das Backend sendet. Das Backend (`HybridSignalEngine`) wertet diese Listen dynamisch aus und konfiguriert die Java-Indikatorklassen zur Laufzeit neu.
 
 ---
-*Zuletzt aktualisiert: 18. November 2024*
+
+## 🧠 4. Wissensdatenbank & Erklärungen
+
+### Warum nutzt das System React- UND Java-Logik?
+Das System folgt einer **"Labor-zu-Produktion"-Philosophie**:
+*   **Frontend (JavaScript) = Labor**: Hier findet das interaktive Experimentieren statt. Die lokale Berechnung erlaubt sofortiges visuelles Feedback im Replay-Modus und beim Verstellen der Regler, ohne Netzwerk-Latenz.
+*   **Backend (Java) = Produktion**: Sobald eine Strategie im Labor validiert wurde, übernimmt Java den "schweren" Teil. Es führt die echten Trades 24/7 stabil auf dem Server aus und berechnet großflächige Backtests über tausende Kerzen performant.
+
+### Dynamische Synchronisation
+Die Indikatoren sind im Backend nicht mehr "hart" codiert. Das Frontend fungiert als Fernbedienung: Jede Änderung an einer SMA-Länge oder einem RSI-Schwellenwert im Browser wird sofort in ein JSON-Paket verpackt und an den Server geschickt. Java liest diese Werte dynamisch aus (via `IndicatorConfig`), sodass die "Produktion" immer exakt so läuft, wie sie im "Labor" eingestellt wurde.
+
+### Mathematische Identität
+Es ist von kritischer Bedeutung, dass die Formeln in `tradingviewindicators.js` (JS) und den Java-Klassen (z.B. `SmaIndicator.java`) exakt identisch sind. Nur so ist gewährleistet, dass ein im Replay gesehenes Signal später im Live-Handel exakt so ausgelöst wird (**"What You See Is What You Get"**).
+
+---
+*Zuletzt aktualisiert: 19. Mai 2026*
