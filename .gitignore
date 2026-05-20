@@ -55,3 +55,4 @@ ml-service/model.pkl
 
 # --- OS-specific ---
 .history/
+/ChatBackup/
