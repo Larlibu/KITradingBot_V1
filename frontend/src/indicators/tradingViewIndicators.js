@@ -16,7 +16,7 @@ const MAX_PARAM = 1_000_000;
  */
 export const ML_CONFIG = Object.freeze({
   confidenceThreshold: 0.6, // Mindestkonfidenz der KI, damit ihr Signal berücksichtigt wird.
-  smaPeriod: 14, // SMA-Periode für die ML-Feature-Berechnung.
+  smaPeriod: 20, // SMA-Periode für die ML-Feature-Berechnung. (Synchronisiert mit ML-Service)
   rsiPeriod: 14,
   emaPeriod: 21,
   volatilityWindow: 6
@@ -68,6 +68,12 @@ export const INDICATOR_TEMPLATES = Object.freeze([
       { key: "length", label: "Length", min: 2, max: 300, step: 1 },
       { key: "mult", label: "StdDev", min: 0.5, max: 5, step: 0.1 }
     ]
+  },
+  {
+    type: "VWAP",
+    label: "VWAP",
+    defaults: { },
+    fields: [ ]
   }
 ]);
 
@@ -263,6 +269,24 @@ function calcMacd(candles, endIndex, fastLength, slowLength, signalLength) {
 }
 
 /**
+ * Berechnet den Volume Weighted Average Price (VWAP).
+ * @param {Array<object>} candles - Die Candlestick-Daten.
+ * @param {number} endIndex - Der Endindex für die Berechnung.
+ * @returns {number|null} Der VWAP-Wert.
+ */
+function calcVwap(candles, endIndex) {
+  let cumulativePv = 0;
+  let cumulativeV = 0;
+  for (let i = 0; i <= endIndex; i += 1) {
+    const c = candles[i];
+    const typicalPrice = (c.high + c.low + c.close) / 3;
+    cumulativePv += typicalPrice * (c.volume || 0);
+    cumulativeV += (c.volume || 0);
+  }
+  return cumulativeV === 0 ? null : cumulativePv / cumulativeV;
+}
+
+/**
  * Berechnet die Bollinger Bänder (Upper, Lower, Middle) für eine Kerzenliste.
  * @param {Array<object>} candles - Die Candlestick-Daten.
  * @param {number} endIndex - Der Endindex für die Berechnung.
@@ -332,6 +356,9 @@ export function minIndexForIndicator(indicator) {
   if (indicator.type === "BBANDS") {
     const length = Math.round(asNumber(indicator.params.length, 20, 2, 300));
     return Math.max(0, length - 1);
+  }
+  if (indicator.type === "VWAP") {
+    return 0;
   }
   return 0;
 }
@@ -451,6 +478,16 @@ function voteByIndicator(indicator, candles, index) {
       ready: true,
       signal,
       valueText: `Close ${close.toFixed(2)} / BB ${lower.toFixed(2)}-${upper.toFixed(2)}`
+    };
+  }
+
+  if (indicator.type === "VWAP") {
+    const vwap = calcVwap(candles, index);
+    if (vwap == null) return { ready: false, minIndex: 0 };
+    return {
+      ready: true,
+      signal: signalFromCompare(close, vwap),
+      valueText: `Close ${close.toFixed(2)} / VWAP ${vwap.toFixed(2)}`
     };
   }
 

@@ -55,25 +55,11 @@ public class IndicatorFeaturePipeline implements FeaturePipeline {
         int idx = candles.size() - 1;
         double close = candles.get(idx).close();
 
-        int smaLen = DEFAULT_SMA_LEN;
-        int rsiLen = DEFAULT_RSI_LEN;
-        int emaLen = DEFAULT_EMA_LEN;
-
-        if (indicators != null) {
-            for (IndicatorConfig config : indicators) {
-                if ("SMA".equalsIgnoreCase(config.type())) {
-                    smaLen = config.getIntParam("length", DEFAULT_SMA_LEN);
-                } else if ("RSI".equalsIgnoreCase(config.type())) {
-                    rsiLen = config.getIntParam("length", DEFAULT_RSI_LEN);
-                } else if ("EMA".equalsIgnoreCase(config.type())) {
-                    emaLen = config.getIntParam("length", DEFAULT_EMA_LEN);
-                }
-            }
-        }
-
-        double sma = smaIndicator.calculate(candles, idx, smaLen);
-        double rsi = rsiIndicator.calculate(candles, idx, rsiLen);
-        double ema = emaIndicator.calculate(candles, idx, emaLen);
+                // ML-Features muessen immer mit den trainierten Perioden berechnet werden,
+        // unabhaengig von der Frontend-Anzeige.
+        double sma = smaIndicator.calculate(candles, idx, DEFAULT_SMA_LEN);
+        double rsi = rsiIndicator.calculate(candles, idx, DEFAULT_RSI_LEN);
+        double ema = emaIndicator.calculate(candles, idx, DEFAULT_EMA_LEN);
 
         double return1 = calculateReturn(candles, idx, 1);
         double return3 = calculateReturn(candles, idx, 3);

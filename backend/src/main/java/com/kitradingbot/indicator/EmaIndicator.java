@@ -48,18 +48,16 @@ public class EmaIndicator implements Indicator {
      * @return Der berechnete EMA-Wert. Gibt den Schlusskurs der aktuellen Kerze zurück, wenn nicht genügend Daten vorhanden sind.
      */
     public double calculate(List<Candle> candles, int endIndex, int period) {
-        // Wenn nicht genügend Kerzen für die Berechnung vorhanden sind, den aktuellen Schlusskurs zurückgeben.
         if (endIndex < period - 1) return candles.get(endIndex).close();
 
-        // Berechnung des Glättungsfaktors (Multiplier)
         double k = 2.0 / (period + 1);
+        double sum = 0;
+        for (int i = 0; i < period; i++) {
+            sum += candles.get(i).close();
+        }
+        double ema = sum / period;
 
-        // Initialer EMA-Wert (oft als SMA der ersten 'period' Kerzen oder einfach der ersten Kerze der Periode)
-        // Hier wird der Schlusskurs der ersten Kerze der Periode als Startwert verwendet.
-        double ema = candles.get(endIndex - period + 1).close();
-
-        // Iteration über die restlichen Kerzen der Periode, um den EMA zu berechnen
-        for (int i = endIndex - period + 2; i <= endIndex; i++) {
+        for (int i = period; i <= endIndex; i++) {
             ema = candles.get(i).close() * k + ema * (1 - k);
         }
         return ema;
