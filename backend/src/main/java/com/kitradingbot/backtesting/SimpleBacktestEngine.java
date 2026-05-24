@@ -1,28 +1,37 @@
 package com.kitradingbot.backtesting;
 
 import com.kitradingbot.feature.FeaturePipeline;
+import com.kitradingbot.indicator.Ta4jUtils;
 import com.kitradingbot.integration.MlServiceClient;
-import com.kitradingbot.model.BacktestResult;
-import com.kitradingbot.model.Candle;
-import com.kitradingbot.model.IndicatorConfig;
-import com.kitradingbot.model.MlPredictionResponse;
-import com.kitradingbot.model.SignalDecision;
-import com.kitradingbot.model.SignalType;
-import com.kitradingbot.model.Trade;
+import com.kitradingbot.model.*;
 import com.kitradingbot.service.MarketDataService;
-import com.kitradingbot.signal.SignalEngine;
+import com.kitradingbot.signal.MlRule;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import org.ta4j.core.*;
+import org.ta4j.core.indicators.EMAIndicator;
+import org.ta4j.core.indicators.MACDIndicator;
+import org.ta4j.core.indicators.RSIIndicator;
+import org.ta4j.core.indicators.SMAIndicator;
+import org.ta4j.core.indicators.bollinger.BollingerBandsLowerIndicator;
+import org.ta4j.core.indicators.bollinger.BollingerBandsMiddleIndicator;
+import org.ta4j.core.indicators.bollinger.BollingerBandsUpperIndicator;
+import org.ta4j.core.indicators.helpers.ClosePriceIndicator;
+import org.ta4j.core.indicators.statistics.StandardDeviationIndicator;
+import org.ta4j.core.rules.AndRule;
+import org.ta4j.core.rules.OverIndicatorRule;
+import org.ta4j.core.rules.UnderIndicatorRule;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
- * Eine einfache Implementierung der {@link BacktestEngine}.
- * Diese Engine simuliert Handelsstrategien auf Basis historischer Marktdaten unter Verwendung
- * von Indikatoren, ML-Vorhersagen und Signalentscheidungen. Sie ist optimiert für Performance
- * durch Batch-Prediction des ML-Services.
+ * Optimierte Backtest-Engine, die ta4j fuer die Simulation nutzt.
+ * Berechnet Indikatoren und Signale zentral im Backend, um Konsistenz zu garantieren.
  */
 @Component
 public class SimpleBacktestEngine implements BacktestEngine {
@@ -31,181 +40,178 @@ public class SimpleBacktestEngine implements BacktestEngine {
     private final MarketDataService marketDataService;
     private final FeaturePipeline featurePipeline;
     private final MlServiceClient mlServiceClient;
-    private final SignalEngine signalEngine;
 
-    // Interne Zustandsvariablen für die Simulation eines Backtest-Laufs
-    private double currentCash; // Aktuelles virtuelles Kapital während der Simulation
-    private double currentQuantity; // Menge des aktuell gehaltenen Assets
-    private double currentEntryPrice; // Einstiegspreis der aktuellen offenen Position
-    private int totalWins; // Zähler für gewonnene Trades
-    private int totalLosses; // Zähler für verlorene Trades
-    private int totalTradesCount; // Gesamtzahl der abgeschlossenen Trades
-    private List<Trade> trades; // Liste aller während des Backtests ausgeführten Trades
-    private long tradeIdCounter; // Zähler für eindeutige Trade-IDs
-
-    /**
-     * Konstruktor für die SimpleBacktestEngine.
-     * Spring injiziert automatisch die benötigten Abhängigkeiten.
-     *
-     * @param marketDataService Der Service zum Abrufen von Marktdaten.
-     * @param featurePipeline   Die Pipeline zur Berechnung von Features für die KI.
-     * @param mlServiceClient   Der Client für die Kommunikation mit dem ML-Service.
-     * @param signalEngine      Die Engine zur Generierung von Handelssignalen.
-     */
     public SimpleBacktestEngine(
             MarketDataService marketDataService,
             FeaturePipeline featurePipeline,
-            MlServiceClient mlServiceClient,
-            SignalEngine signalEngine
+            MlServiceClient mlServiceClient
     ) {
         this.marketDataService = marketDataService;
         this.featurePipeline = featurePipeline;
         this.mlServiceClient = mlServiceClient;
-        this.signalEngine = signalEngine;
     }
 
-    /**
-     * Führt einen Backtest für eine Handelsstrategie auf historischen Daten durch.
-     * Der Prozess umfasst:
-     * 1. Abrufen der Marktdaten.
-     * 2. Vorbereiten der Features für alle Kerzen.
-     * 3. Anfordern von Batch-Vorhersagen vom ML-Service.
-     * 4. Iteration durch die Kerzen, Generierung von Signalen und Simulation von Trades.
-     * 5. Berechnung der Performance-Metriken.
-     *
-     * @param symbol     Das Handelssymbol, für das der Backtest durchgeführt werden soll.
-     * @param candles    Die Anzahl der historischen Kerzen, die für die Simulation verwendet werden sollen.
-     * @param useMl      Ein Flag, das angibt, ob die KI-Vorhersage in die Signalgenerierung einbezogen werden soll.
-     * @param indicators Eine Liste von {@link IndicatorConfig}-Objekten, die die Konfiguration der
-     *                   vom Benutzer ausgewählten Indikatoren definieren.
-     * @return Ein {@link BacktestResult}-Objekt, das die Performance-Metriken,
-     *         die historischen Kerzen und die simulierten Trades des Backtests enthält.
-     */
     @Override
     public BacktestResult run(String symbol, int candles, boolean useMl, List<IndicatorConfig> indicators) {
-        log.info("Starte Backtest für {} ({} Kerzen, useMl={}, Indikatoren: {})", symbol, candles, useMl, indicators.size());
+        log.info("Starte ta4j Backtest fuer {}", symbol);
         List<Candle> market = marketDataService.getMarketData(symbol, candles);
-        int warmup = featurePipeline.warmupPeriod();
+        BarSeries series = Ta4jUtils.convertToBarSeries(market, symbol);
         
-        // 1. Batch-Vorbereitung: Berechne Features und hole Vorhersagen nur, wenn useMl aktiv ist.
+        // ML Batch Predictions
         List<MlPredictionResponse> predictions = new ArrayList<>();
+        int warmup = featurePipeline.warmupPeriod();
         if (useMl) {
             List<double[]> allFeatures = new ArrayList<>();
             for (int i = warmup; i < market.size(); i++) {
                 allFeatures.add(featurePipeline.buildFeatures(market.subList(0, i + 1), indicators));
             }
-            log.info("Sende Batch-Prediction für {} Ticks an den ML-Service.", allFeatures.size());
             try {
                 predictions = mlServiceClient.predictBatch(allFeatures);
             } catch (Exception e) {
-                log.error("Fehler bei der Batch-Prediction: {}. Backtest wird ohne KI fortgesetzt.", e.getMessage());
-                useMl = false; // Fallback: KI deaktivieren, wenn der Service einen Fehler wirft
+                log.error("ML Batch Prediction failed", e);
+                useMl = false;
             }
         }
 
-        // 2. Simulation: Initialisierung des Zustands und Iteration durch die Kerzen.
-        double initialCapital = 10_000.0;
-        initSimulation(initialCapital);
+        // ta4j Simulation
+        TradingRecord tradingRecord = new BaseTradingRecord();
+        List<SignalDecision> decisions = new ArrayList<>();
+        List<List<IndicatorValue>> indicatorHistory = new ArrayList<>();
+        
+        // Vorbereiten der ta4j Indikatoren fuer die Historie
+        ClosePriceIndicator closePrice = new ClosePriceIndicator(series);
+        Map<String, org.ta4j.core.Indicator<org.ta4j.core.num.Num>> ta4jInds = new HashMap<>();
+        
+        for (IndicatorConfig config : indicators) {
+            String type = config.type().toUpperCase();
+            if ("SMA".equals(type)) {
+                int len = config.getIntParam("length", 20);
+                ta4jInds.put("SMA " + len, new SMAIndicator(closePrice, len));
+            } else if ("EMA".equals(type)) {
+                int len = config.getIntParam("length", 20);
+                ta4jInds.put("EMA " + len, new EMAIndicator(closePrice, len));
+            } else if ("RSI".equals(type)) {
+                int len = config.getIntParam("length", 14);
+                ta4jInds.put("RSI " + len, new RSIIndicator(closePrice, len));
+            } else if ("BBANDS".equals(type)) {
+                int len = config.getIntParam("length", 20);
+                double mult = config.getDoubleParam("mult", 2.0);
+                SMAIndicator sma = new SMAIndicator(closePrice, len);
+                StandardDeviationIndicator sd = new StandardDeviationIndicator(closePrice, len);
+                BollingerBandsMiddleIndicator middle = new BollingerBandsMiddleIndicator(sma);
+                ta4jInds.put("BB Middle", middle);
+                ta4jInds.put("BB Upper", new BollingerBandsUpperIndicator(middle, sd, series.numOf(mult)));
+                ta4jInds.put("BB Lower", new BollingerBandsLowerIndicator(middle, sd, series.numOf(mult)));
+            } else if ("MACD".equals(type)) {
+                int fast = config.getIntParam("fast", 12);
+                int slow = config.getIntParam("slow", 26);
+                int signal = config.getIntParam("signal", 9);
+                MACDIndicator macd = new MACDIndicator(closePrice, fast, slow);
+                ta4jInds.put("MACD", macd);
+                ta4jInds.put("MACD Signal", new EMAIndicator(macd, signal));
+            }
+        }
 
-        // Bestimme die Start-Iteration (entweder nach Warmup oder ab Index 0)
-        int startIdx = useMl ? warmup : 1; 
+        double initialCapital = 10000.0;
+        
+        for (int i = 0; i < series.getBarCount(); i++) {
+            List<IndicatorValue> stepInds = new ArrayList<>();
+            for (Map.Entry<String, org.ta4j.core.Indicator<org.ta4j.core.num.Num>> entry : ta4jInds.entrySet()) {
+                try {
+                    stepInds.add(new IndicatorValue(entry.getKey(), entry.getValue().getValue(i).doubleValue()));
+                } catch (Exception e) {
+                    // Falls Indikator fuer diesen Index noch nicht berechenbar (Warmup)
+                }
+            }
+            indicatorHistory.add(stepInds);
 
-        for (int i = startIdx; i < market.size(); i++) {
-            Candle currentCandle = market.get(i);
-            // Hole die passende Prediction aus der Liste, falls useMl aktiv ist
-            MlPredictionResponse prediction = (useMl && !predictions.isEmpty()) 
-                ? predictions.get(i - warmup) 
-                : null;
+            if (i < warmup) {
+                decisions.add(new SignalDecision(SignalType.HOLD, "Warmup", 0, market.get(i).timestamp()));
+                continue;
+            }
+
+            MlPredictionResponse prediction = (useMl && (i - warmup < predictions.size())) ? predictions.get(i - warmup) : null;
+            Strategy strategy = buildStrategy(series, prediction, indicators, useMl);
             
-            SignalDecision decision = signalEngine.generateSignal(market.subList(0, i + 1), prediction, useMl, indicators);
+            SignalType signal = SignalType.HOLD;
+            if (strategy.shouldEnter(i, tradingRecord)) {
+                signal = SignalType.BUY;
+                tradingRecord.enter(i, series.getBar(i).getClosePrice(), series.numOf(1));
+            } else if (strategy.shouldExit(i, tradingRecord)) {
+                signal = SignalType.SELL;
+                tradingRecord.exit(i, series.getBar(i).getClosePrice(), series.numOf(1));
+            }
+            decisions.add(new SignalDecision(signal, "ta4j simulation", prediction != null ? prediction.confidence() : 0, market.get(i).timestamp()));
+        }
 
-            // Handelsausführung simulieren
-            if (decision.signal() == SignalType.BUY && currentQuantity == 0.0) {
-                executeBuy(currentCandle);
-            } else if (decision.signal() == SignalType.SELL && currentQuantity > 0.0) {
-                executeSell(currentCandle);
+        return convertToBacktestResult(series, tradingRecord, initialCapital, market, decisions, indicatorHistory);
+    }
+
+    private Strategy buildStrategy(BarSeries series, MlPredictionResponse prediction, List<IndicatorConfig> indicators, boolean useMl) {
+        ClosePriceIndicator closePrice = new ClosePriceIndicator(series);
+        Rule entryRule = null;
+        Rule exitRule = null;
+
+        for (IndicatorConfig config : indicators) {
+            Rule iEntry = null;
+            Rule iExit = null;
+            String type = config.type().toUpperCase();
+            if ("SMA".equals(type)) {
+                int len = config.getIntParam("length", 20);
+                SMAIndicator sma = new SMAIndicator(closePrice, len);
+                iEntry = new OverIndicatorRule(closePrice, sma);
+                iExit = new UnderIndicatorRule(closePrice, sma);
+            } else if ("RSI".equals(type)) {
+                int len = config.getIntParam("length", 14);
+                RSIIndicator rsi = new RSIIndicator(closePrice, len);
+                iEntry = new UnderIndicatorRule(rsi, config.getDoubleParam("oversold", 30));
+                iExit = new OverIndicatorRule(rsi, config.getDoubleParam("overbought", 70));
+            } else if ("EMA".equals(type)) {
+                int len = config.getIntParam("length", 20);
+                EMAIndicator ema = new EMAIndicator(closePrice, len);
+                iEntry = new OverIndicatorRule(closePrice, ema);
+                iExit = new UnderIndicatorRule(closePrice, ema);
+            }
+            
+            if (iEntry != null) {
+                entryRule = (entryRule == null) ? iEntry : new AndRule(entryRule, iEntry);
+                exitRule = (exitRule == null) ? iExit : new AndRule(exitRule, iExit);
             }
         }
 
-        // Abschließende Auswertung: Schließe eventuell offene Positionen und berechne Metriken.
-        Candle lastCandle = market.get(market.size() - 1);
-        closeOpenPositionAtEnd(lastCandle);
-
-        // Berechnung der Performance-Metriken
-        double strategyReturnPct = ((currentCash - initialCapital) / initialCapital) * 100.0;
-        double buyHoldReturnPct = ((lastCandle.close() - market.get(0).close()) / market.get(0).close()) * 100.0;
-        double winRate = totalTradesCount == 0 ? 0.0 : (totalWins * 100.0 / totalTradesCount);
-
-        // Rückgabe des Backtest-Ergebnisses.
-        return new BacktestResult(strategyReturnPct, buyHoldReturnPct, currentCash - initialCapital, totalTradesCount, totalWins, totalLosses, winRate, market, new ArrayList<>(trades));
-    }
-
-    /**
-     * Initialisiert die internen Variablen für einen neuen Simulations-Durchlauf.
-     *
-     * @param initialCapital Das Startkapital für die Simulation.
-     */
-    private void initSimulation(double initialCapital) {
-        this.currentCash = initialCapital;
-        this.currentQuantity = 0.0;
-        this.currentEntryPrice = 0.0;
-        this.totalWins = 0;
-        this.totalLosses = 0;
-        this.totalTradesCount = 0;
-        this.trades = new ArrayList<>(); // Leere Liste für neue Trades
-        this.tradeIdCounter = 1; // Startet die Trade-ID-Zählung neu
-    }
-
-    /**
-     * Simuliert die Ausführung eines Kauf-Trades.
-     * Berechnet die Positionsgröße und speichert den Trade.
-     *
-     * @param candle Die aktuelle Kerze, zu der der Kauf ausgeführt wird.
-     */
-    private void executeBuy(Candle candle) {
-        // Berechnet die Menge basierend auf einem festen Prozentsatz des Kapitals (hier 1%).
-        // Dies ist eine vereinfachte Positionsgrößenbestimmung.
-        double buyQuantity = (currentCash * 0.01) / candle.close();
-        currentQuantity = buyQuantity;
-        currentEntryPrice = candle.close();
-        
-        // Speichert den Kauf-Trade.
-        trades.add(new Trade(tradeIdCounter++, candle.timestamp(), SignalType.BUY, candle.close(), buyQuantity, 0.0, currentCash));
-    }
-
-    /**
-     * Simuliert die Ausführung eines Verkauf-Trades.
-     * Berechnet den Gewinn/Verlust, aktualisiert das Kapital und speichert den Trade.
-     *
-     * @param candle Die aktuelle Kerze, zu der der Verkauf ausgeführt wird.
-     */
-    private void executeSell(Candle candle) {
-        // Berechnet den Gewinn oder Verlust (Profit and Loss) der geschlossenen Position.
-        double pnl = (candle.close() - currentEntryPrice) * currentQuantity;
-        currentCash += pnl; // Aktualisiert das virtuelle Kapital
-        totalTradesCount++;
-        
-        // Aktualisiert die Zähler für gewonnene/verlorene Trades.
-        if (pnl >= 0) totalWins++; else totalLosses++;
-        
-        // Speichert den Verkauf-Trade.
-        trades.add(new Trade(tradeIdCounter++, candle.timestamp(), SignalType.SELL, candle.close(), currentQuantity, pnl, currentCash));
-        
-        // Setzt die offenen Positionsdaten zurück.
-        currentQuantity = 0.0;
-        currentEntryPrice = 0.0;
-    }
-
-    /**
-     * Schließt eine eventuell am Ende des Backtests noch offene Position.
-     * Dies stellt sicher, dass alle Trades in die finale Performance-Berechnung einfließen.
-     *
-     * @param lastCandle Die letzte Kerze der Marktdaten.
-     */
-    private void closeOpenPositionAtEnd(Candle lastCandle) {
-        if (currentQuantity > 0.0) {
-            log.info("Schließe offene Position am Ende des Backtests.");
-            executeSell(lastCandle); // Nutzt die bestehende executeSell-Logik.
+        if (useMl && prediction != null) {
+            MlRule mlBuy = new MlRule(prediction, SignalType.BUY, 0.5);
+            MlRule mlSell = new MlRule(prediction, SignalType.SELL, 0.5);
+            entryRule = (entryRule == null) ? mlBuy : new AndRule(entryRule, mlBuy);
+            exitRule = (exitRule == null) ? mlSell : new AndRule(exitRule, mlSell);
         }
+
+        if (entryRule == null) entryRule = new org.ta4j.core.rules.BooleanRule(false);
+        if (exitRule == null) exitRule = new org.ta4j.core.rules.BooleanRule(false);
+
+        return new BaseStrategy(entryRule, exitRule);
+    }
+
+    private BacktestResult convertToBacktestResult(BarSeries series, TradingRecord record, double initialCapital, List<Candle> market, List<SignalDecision> decisions, List<List<IndicatorValue>> indicatorHistory) {
+        List<com.kitradingbot.model.Trade> trades = new ArrayList<>();
+        double currentCapital = initialCapital;
+        int wins = 0;
+        int losses = 0;
+
+        for (Position pos : record.getPositions()) {
+            double entryPrice = pos.getEntry().getNetPrice().doubleValue();
+            double exitPrice = pos.getExit().getNetPrice().doubleValue();
+            double pnl = (exitPrice - entryPrice) * 1.0; 
+            currentCapital += pnl;
+            if (pnl >= 0) wins++; else losses++;
+
+            trades.add(new com.kitradingbot.model.Trade(0, market.get(pos.getEntry().getIndex()).timestamp(), SignalType.BUY, entryPrice, 1.0, 0, 0));
+            trades.add(new com.kitradingbot.model.Trade(0, market.get(pos.getExit().getIndex()).timestamp(), SignalType.SELL, exitPrice, 1.0, pnl, currentCapital));
+        }
+
+        double strategyReturn = ((currentCapital - initialCapital) / initialCapital) * 100.0;
+        double buyHold = ((series.getLastBar().getClosePrice().doubleValue() - series.getFirstBar().getClosePrice().doubleValue()) / series.getFirstBar().getClosePrice().doubleValue()) * 100.0;
+
+        return new BacktestResult(strategyReturn, buyHold, currentCapital - initialCapital, record.getPositionCount(), wins, losses, record.getPositionCount() == 0 ? 0 : (wins * 100.0 / record.getPositionCount()), market, trades, decisions, indicatorHistory);
     }
 }

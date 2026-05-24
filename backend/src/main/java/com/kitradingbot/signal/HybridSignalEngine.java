@@ -1,181 +1,126 @@
 package com.kitradingbot.signal;
 
 import com.kitradingbot.config.TradingProperties;
-import com.kitradingbot.indicator.RsiIndicator;
-import com.kitradingbot.indicator.SmaIndicator;
-import com.kitradingbot.indicator.EmaIndicator;
-import com.kitradingbot.indicator.BbandsIndicator;
+import com.kitradingbot.indicator.Ta4jUtils;
 import com.kitradingbot.model.Candle;
 import com.kitradingbot.model.IndicatorConfig;
 import com.kitradingbot.model.MlPredictionResponse;
 import com.kitradingbot.model.SignalDecision;
 import com.kitradingbot.model.SignalType;
 import org.springframework.stereotype.Component;
+import org.ta4j.core.*;
+import org.ta4j.core.indicators.SMAIndicator;
+import org.ta4j.core.indicators.RSIIndicator;
+import org.ta4j.core.indicators.helpers.ClosePriceIndicator;
+import org.ta4j.core.rules.AndRule;
+import org.ta4j.core.rules.OverIndicatorRule;
+import org.ta4j.core.rules.UnderIndicatorRule;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Eine hybride Implementierung der {@link SignalEngine}, die technische Indikatoren
- * mit Machine-Learning-Vorhersagen kombiniert.
- * Diese Engine generiert ein Handelssignal (BUY, SELL, HOLD) basierend auf einem Konsens
- * zwischen den konfigurierten Indikatoren und optional der KI-Vorhersage.
- * Die Indikatoren können dynamisch vom Frontend konfiguriert werden.
+ * Hybride Signal-Engine, die ta4j-Strategien nutzt, um Kauf- und Verkaufssignale zu generieren.
+ * Sie kombiniert klassische technische Indikatoren mit modernen Machine-Learning-Vorhersagen
+ * in einer einheitlichen ta4j-Strategie-Logik.
  */
 @Component
 public class HybridSignalEngine implements SignalEngine {
+    /** Globale Trading-Konfigurationen, z.B. Schwellenwerte fuer KI-Konfidenz. */
     private final TradingProperties properties;
-    private final RsiIndicator rsiIndicator;
-    private final SmaIndicator smaIndicator;
-    private final EmaIndicator emaIndicator;
-    private final BbandsIndicator bbandsIndicator;
 
     /**
-     * Konstruktor für die HybridSignalEngine.
-     * Spring injiziert automatisch alle benötigten Abhängigkeiten.
+     * Konstruktor fuer die HybridSignalEngine.
      *
-     * @param properties      Die globalen Trading-Konfigurationen.
-     * @param rsiIndicator    Der {@link RsiIndicator} zur Berechnung des RSI.
-     * @param smaIndicator    Der {@link SmaIndicator} zur Berechnung des SMA.
-     * @param emaIndicator    Der {@link EmaIndicator} zur Berechnung des EMA.
-     * @param bbandsIndicator Der {@link BbandsIndicator} zur Berechnung der Bollinger Bänder.
+     * @param properties Das Konfigurationsobjekt fuer Trading-Einstellungen.
      */
-    public HybridSignalEngine(
-            TradingProperties properties,
-            RsiIndicator rsiIndicator,
-            SmaIndicator smaIndicator,
-            EmaIndicator emaIndicator,
-            BbandsIndicator bbandsIndicator
-    ) {
+    public HybridSignalEngine(TradingProperties properties) {
         this.properties = properties;
-        this.rsiIndicator = rsiIndicator;
-        this.smaIndicator = smaIndicator;
-        this.emaIndicator = emaIndicator;
-        this.bbandsIndicator = bbandsIndicator;
     }
 
     /**
-     * Generiert eine Signalentscheidung basierend auf den aktuellen Marktdaten,
-     * einer optionalen KI-Vorhersage und einer Liste dynamisch konfigurierter Indikatoren.
-     * Die Logik prüft, ob ein Konsens für ein Kauf- oder Verkaufssignal besteht.
+     * Generiert eine Signalentscheidung basierend auf der aktuellen Marktphase.
+     * Nutzt ta4j-Regeln, um Indikatoren und ML-Vorhersagen zu evaluieren.
      *
-     * @param candles    Die Liste der historischen Kerzen, wobei die letzte Kerze die aktuelle ist.
-     * @param prediction Die Vorhersage des Machine-Learning-Modells.
-     * @param useMl      Ein Flag, das angibt, ob die KI-Vorhersage in die Konsensbildung einbezogen werden soll.
-     * @param indicators Eine Liste von {@link IndicatorConfig}-Objekten, die die vom Benutzer
-     *                   konfigurierten Indikatoren und deren Parameter enthalten.
-     * @return Eine {@link SignalDecision}, die das generierte Signal, eine Begründung und die Konfidenz enthält.
+     * @param candles    Die aktuellen Marktdaten (Zeitreihe der Kerzen).
+     * @param prediction Die Vorhersage des ML-Modells fuer den aktuellen Zeitpunkt.
+     * @param useMl      Flag zur Aktivierung oder Deaktivierung der KI-Logik.
+     * @param indicators Liste der dynamisch konfigurierten Indikatoren vom Dashboard.
+     * @return Eine {@link SignalDecision} mit dem berechneten Signal (BUY, SELL oder HOLD).
      */
     @Override
     public SignalDecision generateSignal(List<Candle> candles, MlPredictionResponse prediction, boolean useMl, List<IndicatorConfig> indicators) {
-        int idx = candles.size() - 1; // Index der aktuellsten Kerze
-        double close = candles.get(idx).close(); // Schlusskurs der aktuellen Kerze
-        List<String> statuses = new ArrayList<>(); // Für die detaillierte Begründung
-
-        // 1. KI-Vorhersage prüfen (nur wenn useMl aktiv ist)
-        boolean mlConfirmsBuy = true; // Annahme: KI stimmt zu, wenn nicht aktiv oder kein klares Signal
-        boolean mlConfirmsSell = true; // Annahme: KI stimmt zu, wenn nicht aktiv oder kein klares Signal
-
-        if (useMl && prediction != null) {
-            boolean confident = prediction.confidence() >= properties.getMlConfidenceThreshold();
-            String predictionLabel = prediction.label();
-            boolean isUp = "STEIGT".equalsIgnoreCase(predictionLabel) || "UP".equalsIgnoreCase(predictionLabel);
-            boolean isDown = "FÄLLT".equalsIgnoreCase(predictionLabel)
-                    || "FAELLT".equalsIgnoreCase(predictionLabel)
-                    || "DOWN".equalsIgnoreCase(predictionLabel);
-
-            // KI bestätigt nur, wenn sie konfident ist und das entsprechende Signal gibt
-            mlConfirmsBuy = confident && isUp;
-            mlConfirmsSell = confident && isDown;
-
-            statuses.add("KI=" + (isUp ? "BUY" : (isDown ? "SELL" : "HOLD")));
-        } else if (useMl && prediction == null) {
-            // Wenn KI aktiv, aber keine Prediction verfügbar, dann kein Konsens durch KI
-            mlConfirmsBuy = false;
-            mlConfirmsSell = false;
-            statuses.add("KI=N/A");
-        }
-
-
-        // 2. Dynamische Indikatoren auswerten
-        boolean anyIndicatorActive = false;
-        boolean allIndicatorsBuy = true;
-        boolean allIndicatorsSell = true;
+        // Konvertierung in ta4j-Format fuer die Strategie-Auswertung
+        BarSeries series = Ta4jUtils.convertToBarSeries(candles, "LiveSeries");
+        int lastIdx = series.getEndIndex();
         
-        if (indicators != null && !indicators.isEmpty()) {
-            anyIndicatorActive = true;
-            for (IndicatorConfig config : indicators) {
-                String type = config.type().toUpperCase();
-                
-                if ("SMA".equals(type)) {
-                    int len = config.getIntParam("length", 20);
-                    double val = smaIndicator.calculate(candles, idx, len);
-                    if (close <= val) allIndicatorsBuy = false;
-                    if (close >= val) allIndicatorsSell = false;
-                    statuses.add("SMA=" + (close > val ? "BUY" : (close < val ? "SELL" : "HOLD")));
-                } 
-                else if ("EMA".equals(type)) {
-                    int len = config.getIntParam("length", 20);
-                    double val = emaIndicator.calculate(candles, idx, len);
-                    if (close <= val) allIndicatorsBuy = false;
-                    if (close >= val) allIndicatorsSell = false;
-                    statuses.add("EMA=" + (close > val ? "BUY" : (close < val ? "SELL" : "HOLD")));
-                } 
-                else if ("RSI".equals(type)) {
-                    int len = config.getIntParam("length", 14);
-                    double ob = config.getDoubleParam("overbought", 70);
-                    double os = config.getDoubleParam("oversold", 30);
-                    double val = rsiIndicator.calculate(candles, idx, len);
-                    if (val > os) allIndicatorsBuy = false;
-                    if (val < ob) allIndicatorsSell = false;
-                    statuses.add("RSI=" + (val <= os ? "BUY" : (val >= ob ? "SELL" : "HOLD")));
-                } 
-                else if ("BBANDS".equals(type)) {
-                    BbandsIndicator.Bands bands = bbandsIndicator.calculate(candles, idx, config.getIntParam("length", 20), config.getDoubleParam("mult", 2.0));
-                    if (close >= bands.lower()) allIndicatorsBuy = false;
-                    if (close <= bands.upper()) allIndicatorsSell = false;
-                    statuses.add("BB=" + (close < bands.lower() ? "BUY" : (close > bands.upper() ? "SELL" : "HOLD")));
-                }
-                else {
-                    // Unbekannter Indikator (z.B. MACD) -> darf den Konsens nicht fälschlich positiv beeinflussen
-                    allIndicatorsBuy = false;
-                    allIndicatorsSell = false;
-                    statuses.add(type + "=UNSUPPORTED");
-                }
-            }
-        } else {
-            // Fallback auf Standardwerte, wenn gar keine Indikatoren konfiguriert sind
-            anyIndicatorActive = true;
-            double rsi = rsiIndicator.calculate(candles, idx, properties.getRsiPeriod());
-            double sma = smaIndicator.calculate(candles, idx, properties.getSmaPeriod());
-            
-            boolean rsiBuy = rsi <= properties.getRsiOversold();
-            boolean rsiSell = rsi >= properties.getRsiOverbought();
-            boolean smaBuy = close > sma;
-            boolean smaSell = close < sma;
-
-            allIndicatorsBuy = rsiBuy && smaBuy;
-            allIndicatorsSell = rsiSell && smaSell;
-
-            statuses.add("RSI=" + (rsiBuy ? "BUY" : (rsiSell ? "SELL" : "HOLD")));
-            statuses.add("SMA=" + (smaBuy ? "BUY" : (smaSell ? "SELL" : "HOLD")));
-        }
-
-        // 3. Finale Entscheidung: Konsens-Logik
+        // Dynamischer Aufbau der Strategie
+        Strategy strategy = buildStrategy(series, prediction, indicators, useMl);
+        TradingRecord tradingRecord = new BaseTradingRecord(); 
+        
+        // Evaluation der Ein- und Ausstiegsregeln am aktuellsten Datenpunkt
         SignalType signal = SignalType.HOLD;
-        if (anyIndicatorActive && allIndicatorsBuy && mlConfirmsBuy) {
+        if (strategy.shouldEnter(lastIdx, tradingRecord)) {
             signal = SignalType.BUY;
-        } else if (anyIndicatorActive && allIndicatorsSell && mlConfirmsSell) {
+        } else if (strategy.shouldExit(lastIdx, tradingRecord)) {
             signal = SignalType.SELL;
         }
 
-        // Erstellung der Begründung für die Entscheidung
-        String reason = (signal != SignalType.HOLD) 
-            ? "Konsens erreicht: " + signal 
-            : "Kein Konsens: " + String.join(", ", statuses);
+        return new SignalDecision(signal, "ta4j Strategy Evaluated", prediction != null ? prediction.confidence() : 0, LocalDateTime.now());
+    }
 
-        // Rückgabe der Signalentscheidung
-        return new SignalDecision(signal, reason, prediction != null ? prediction.confidence() : 0, LocalDateTime.now());
+    /**
+     * Baut eine ta4j-Handelsstrategie dynamisch aus den Frontend-Konfigurationen und KI-Vorhersagen zusammen.
+     *
+     * @param series     Die aktuelle Kurs-Zeitreihe.
+     * @param prediction Die KI-Vorhersage.
+     * @param indicators Die Liste der konfigurierten Indikatoren.
+     * @param useMl      Gibt an, ob KI in die Regeln aufgenommen werden soll.
+     * @return Eine evaluierbare {@link Strategy}.
+     */
+    private Strategy buildStrategy(BarSeries series, MlPredictionResponse prediction, List<IndicatorConfig> indicators, boolean useMl) {
+        ClosePriceIndicator closePrice = new ClosePriceIndicator(series);
+        Rule entryRule = null;
+        Rule exitRule = null;
+
+        // Iteration ueber alle vom Benutzer konfigurierten Indikatoren
+        for (IndicatorConfig config : indicators) {
+            Rule iEntry = null;
+            Rule iExit = null;
+            String type = config.type().toUpperCase();
+            
+            if ("SMA".equals(type)) {
+                int len = config.getIntParam("length", 20);
+                SMAIndicator sma = new SMAIndicator(closePrice, len);
+                iEntry = new OverIndicatorRule(closePrice, sma);
+                iExit = new UnderIndicatorRule(closePrice, sma);
+            } else if ("RSI".equals(type)) {
+                int len = config.getIntParam("length", 14);
+                RSIIndicator rsi = new RSIIndicator(closePrice, len);
+                iEntry = new UnderIndicatorRule(rsi, config.getDoubleParam("oversold", 30));
+                iExit = new OverIndicatorRule(rsi, config.getDoubleParam("overbought", 70));
+            }
+            
+            // Verknuepfung der Regeln (Standard: Alle Bedingungen muessen erfuellt sein -> AndRule)
+            if (iEntry != null) {
+                entryRule = (entryRule == null) ? iEntry : new AndRule(entryRule, iEntry);
+                exitRule = (exitRule == null) ? iExit : new AndRule(exitRule, iExit);
+            }
+        }
+
+        // Integration der KI-Logik als zusaetzliche Filter-Regel
+        if (useMl && prediction != null) {
+            double threshold = properties.getMlConfidenceThreshold();
+            MlRule mlBuy = new MlRule(prediction, SignalType.BUY, threshold);
+            MlRule mlSell = new MlRule(prediction, SignalType.SELL, threshold);
+            entryRule = (entryRule == null) ? mlBuy : new AndRule(entryRule, mlBuy);
+            exitRule = (exitRule == null) ? mlSell : new AndRule(exitRule, mlSell);
+        }
+
+        // Fallback: Wenn keine Regeln definiert sind, passiert nichts (HOLD)
+        if (entryRule == null) entryRule = new org.ta4j.core.rules.BooleanRule(false);
+        if (exitRule == null) exitRule = new org.ta4j.core.rules.BooleanRule(false);
+
+        return new BaseStrategy(entryRule, exitRule);
     }
 }
