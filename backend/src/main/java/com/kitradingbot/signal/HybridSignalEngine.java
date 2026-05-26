@@ -9,118 +9,90 @@ import com.kitradingbot.model.SignalDecision;
 import com.kitradingbot.model.SignalType;
 import org.springframework.stereotype.Component;
 import org.ta4j.core.*;
-import org.ta4j.core.indicators.SMAIndicator;
+import org.ta4j.core.indicators.EMAIndicator;
+import org.ta4j.core.indicators.MACDIndicator;
 import org.ta4j.core.indicators.RSIIndicator;
+import org.ta4j.core.indicators.SMAIndicator;
+import org.ta4j.core.indicators.bollinger.BollingerBandsLowerIndicator;
+import org.ta4j.core.indicators.bollinger.BollingerBandsUpperIndicator;
+import org.ta4j.core.indicators.bollinger.BollingerBandsMiddleIndicator;
 import org.ta4j.core.indicators.helpers.ClosePriceIndicator;
-import org.ta4j.core.rules.AndRule;
-import org.ta4j.core.rules.OverIndicatorRule;
-import org.ta4j.core.rules.UnderIndicatorRule;
+import org.ta4j.core.indicators.statistics.StandardDeviationIndicator;
+import org.ta4j.core.rules.*;
 
 import java.time.LocalDateTime;
 import java.util.List;
 
-/**
- * Hybride Signal-Engine, die ta4j-Strategien nutzt, um Kauf- und Verkaufssignale zu generieren.
- * Sie kombiniert klassische technische Indikatoren mit modernen Machine-Learning-Vorhersagen
- * in einer einheitlichen ta4j-Strategie-Logik.
- */
 @Component
 public class HybridSignalEngine implements SignalEngine {
-    /** Globale Trading-Konfigurationen, z.B. Schwellenwerte fuer KI-Konfidenz. */
-    private final TradingProperties properties;
+    private final TradingProperties props;
+    public HybridSignalEngine(TradingProperties props) { this.props = props; }
 
-    /**
-     * Konstruktor fuer die HybridSignalEngine.
-     *
-     * @param properties Das Konfigurationsobjekt fuer Trading-Einstellungen.
-     */
-    public HybridSignalEngine(TradingProperties properties) {
-        this.properties = properties;
-    }
-
-    /**
-     * Generiert eine Signalentscheidung basierend auf der aktuellen Marktphase.
-     * Nutzt ta4j-Regeln, um Indikatoren und ML-Vorhersagen zu evaluieren.
-     *
-     * @param candles    Die aktuellen Marktdaten (Zeitreihe der Kerzen).
-     * @param prediction Die Vorhersage des ML-Modells fuer den aktuellen Zeitpunkt.
-     * @param useMl      Flag zur Aktivierung oder Deaktivierung der KI-Logik.
-     * @param indicators Liste der dynamisch konfigurierten Indikatoren vom Dashboard.
-     * @return Eine {@link SignalDecision} mit dem berechneten Signal (BUY, SELL oder HOLD).
-     */
     @Override
-    public SignalDecision generateSignal(List<Candle> candles, MlPredictionResponse prediction, boolean useMl, List<IndicatorConfig> indicators) {
-        // Konvertierung in ta4j-Format fuer die Strategie-Auswertung
-        BarSeries series = Ta4jUtils.convertToBarSeries(candles, "LiveSeries");
-        int lastIdx = series.getEndIndex();
+    public SignalDecision generateSignal(List<Candle> candles, MlPredictionResponse pred, boolean useMl, List<IndicatorConfig> indicators) {
+        if (candles.isEmpty()) return new SignalDecision(SignalType.HOLD, "Keine Daten", 0, LocalDateTime.now());
+        BarSeries series = Ta4jUtils.convertToBarSeries(candles, "Live");
+        int idx = series.getEndIndex();
         
-        // Dynamischer Aufbau der Strategie
-        Strategy strategy = buildStrategy(series, prediction, indicators, useMl);
-        TradingRecord tradingRecord = new BaseTradingRecord(); 
+        Strategy strat = buildStrategy(series, pred, indicators, useMl);
+        TradingRecord record = new BaseTradingRecord(); 
         
-        // Evaluation der Ein- und Ausstiegsregeln am aktuellsten Datenpunkt
-        SignalType signal = SignalType.HOLD;
-        if (strategy.shouldEnter(lastIdx, tradingRecord)) {
-            signal = SignalType.BUY;
-        } else if (strategy.shouldExit(lastIdx, tradingRecord)) {
-            signal = SignalType.SELL;
-        }
+        SignalType sig = SignalType.HOLD;
+        if (strat.shouldEnter(idx, record)) sig = SignalType.BUY;
+        else if (strat.shouldExit(idx, record)) sig = SignalType.SELL;
 
-        return new SignalDecision(signal, "ta4j Strategy Evaluated", prediction != null ? prediction.confidence() : 0, LocalDateTime.now());
+        return new SignalDecision(sig, "ta4j", pred != null ? pred.confidence() : 0, LocalDateTime.now());
     }
 
-    /**
-     * Baut eine ta4j-Handelsstrategie dynamisch aus den Frontend-Konfigurationen und KI-Vorhersagen zusammen.
-     *
-     * @param series     Die aktuelle Kurs-Zeitreihe.
-     * @param prediction Die KI-Vorhersage.
-     * @param indicators Die Liste der konfigurierten Indikatoren.
-     * @param useMl      Gibt an, ob KI in die Regeln aufgenommen werden soll.
-     * @return Eine evaluierbare {@link Strategy}.
-     */
-    private Strategy buildStrategy(BarSeries series, MlPredictionResponse prediction, List<IndicatorConfig> indicators, boolean useMl) {
-        ClosePriceIndicator closePrice = new ClosePriceIndicator(series);
-        Rule entryRule = null;
-        Rule exitRule = null;
+    private Strategy buildStrategy(BarSeries series, MlPredictionResponse pred, List<IndicatorConfig> indicators, boolean useMl) {
+        ClosePriceIndicator close = new ClosePriceIndicator(series);
+        Rule entry = null; Rule exit = null;
 
-        // Iteration ueber alle vom Benutzer konfigurierten Indikatoren
-        for (IndicatorConfig config : indicators) {
-            Rule iEntry = null;
-            Rule iExit = null;
-            String type = config.type().toUpperCase();
-            
-            if ("SMA".equals(type)) {
-                int len = config.getIntParam("length", 20);
-                SMAIndicator sma = new SMAIndicator(closePrice, len);
-                iEntry = new OverIndicatorRule(closePrice, sma);
-                iExit = new UnderIndicatorRule(closePrice, sma);
-            } else if ("RSI".equals(type)) {
-                int len = config.getIntParam("length", 14);
-                RSIIndicator rsi = new RSIIndicator(closePrice, len);
-                iEntry = new UnderIndicatorRule(rsi, config.getDoubleParam("oversold", 30));
-                iExit = new OverIndicatorRule(rsi, config.getDoubleParam("overbought", 70));
-            }
-            
-            // Verknuepfung der Regeln (Standard: Alle Bedingungen muessen erfuellt sein -> AndRule)
-            if (iEntry != null) {
-                entryRule = (entryRule == null) ? iEntry : new AndRule(entryRule, iEntry);
-                exitRule = (exitRule == null) ? iExit : new AndRule(exitRule, iExit);
+        if (indicators != null) {
+            for (IndicatorConfig config : indicators) {
+                Rule iEntry = null; Rule iExit = null;
+                String type = config.type().toUpperCase();
+                
+                if ("SMA".equals(type)) {
+                    int len = config.getIntParam("length", 20);
+                    SMAIndicator sma = new SMAIndicator(close, len);
+                    iEntry = new CrossedUpIndicatorRule(close, sma);
+                    iExit = new CrossedDownIndicatorRule(close, sma);
+                } else if ("RSI".equals(type)) {
+                    int len = config.getIntParam("length", 14);
+                    double lo = config.getDoubleParam("oversold", 30);
+                    double hi = config.getDoubleParam("overbought", 70);
+                    RSIIndicator rsi = new RSIIndicator(close, len);
+                    // MEHR SIGNALE: Under/Over
+                    iEntry = new UnderIndicatorRule(rsi, series.numOf(lo));
+                    iExit = new OverIndicatorRule(rsi, series.numOf(hi));
+                } else if ("EMA".equals(type)) {
+                    int len = config.getIntParam("length", 20);
+                    EMAIndicator ema = new EMAIndicator(close, len);
+                    iEntry = new CrossedUpIndicatorRule(close, ema);
+                    iExit = new CrossedDownIndicatorRule(close, ema);
+                } else if ("BBANDS".equals(type)) {
+                    int len = config.getIntParam("length", 20);
+                    double m = config.getDoubleParam("mult", 2.0);
+                    StandardDeviationIndicator sd = new StandardDeviationIndicator(close, len);
+                    BollingerBandsMiddleIndicator mid = new BollingerBandsMiddleIndicator(new SMAIndicator(close, len));
+                    iEntry = new UnderIndicatorRule(close, new BollingerBandsLowerIndicator(mid, sd, series.numOf(m)));
+                    iExit = new OverIndicatorRule(close, new BollingerBandsUpperIndicator(mid, sd, series.numOf(m)));
+                }
+
+                if (iEntry != null) {
+                    entry = (entry == null) ? iEntry : new AndRule(entry, iEntry);
+                    exit = (exit == null) ? iExit : new AndRule(exit, iExit);
+                }
             }
         }
 
-        // Integration der KI-Logik als zusaetzliche Filter-Regel
-        if (useMl && prediction != null) {
-            double threshold = properties.getMlConfidenceThreshold();
-            MlRule mlBuy = new MlRule(prediction, SignalType.BUY, threshold);
-            MlRule mlSell = new MlRule(prediction, SignalType.SELL, threshold);
-            entryRule = (entryRule == null) ? mlBuy : new AndRule(entryRule, mlBuy);
-            exitRule = (exitRule == null) ? mlSell : new AndRule(exitRule, mlSell);
+        if (useMl && pred != null) {
+            double thr = props.getMlConfidenceThreshold();
+            entry = (entry == null) ? new MlRule(pred, SignalType.BUY, thr) : new AndRule(entry, new MlRule(pred, SignalType.BUY, thr));
+            exit = (exit == null) ? new MlRule(pred, SignalType.SELL, thr) : new AndRule(exit, new MlRule(pred, SignalType.SELL, thr));
         }
 
-        // Fallback: Wenn keine Regeln definiert sind, passiert nichts (HOLD)
-        if (entryRule == null) entryRule = new org.ta4j.core.rules.BooleanRule(false);
-        if (exitRule == null) exitRule = new org.ta4j.core.rules.BooleanRule(false);
-
-        return new BaseStrategy(entryRule, exitRule);
+        return new BaseStrategy(entry != null ? entry : new BooleanRule(false), exit != null ? exit : new BooleanRule(false));
     }
 }

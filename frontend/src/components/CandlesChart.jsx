@@ -3,15 +3,6 @@ import { createChart } from "lightweight-charts";
 
 /**
  * React-Komponente fuer die Anzeige eines interaktiven Candlestick-Charts.
- * Nutzt nun prim?r die ta4j-Berechnungen vom Backend, um Konsistenz zu garantieren.
- *
- * @param {object} props - Die Props der Komponente.
- * @param {Array<object>} props.candles - Die Liste der Candlestick-Daten.
- * @param {Array<Array<object>>} [props.indicatorHistory=[]] - Vorberechnete Indikatorwerte vom Backend (ta4j).
- * @param {boolean} [props.replayEnabled=false] - Gibt an, ob der Replay-Modus aktiv ist.
- * @param {number} [props.replayIndex=0] - Der aktuelle Index im Replay-Modus.
- * @param {Array<object>} [props.replayMarkers=[]] - Marker fuer Trades.
- * @returns {JSX.Element} Das gerenderte Chart-Panel.
  */
 export default function CandlesChart({
   candles,
@@ -23,7 +14,7 @@ export default function CandlesChart({
   const containerRef = useRef(null);
 
   useEffect(() => {
-    if (!containerRef.current || candles.length === 0) return;
+    if (!containerRef.current || !candles || candles.length === 0) return;
 
     const chart = createChart(containerRef.current, {
       width: containerRef.current.clientWidth,
@@ -41,8 +32,9 @@ export default function CandlesChart({
       borderVisible: false
     });
 
+    // Sicherheit: Falls Zeitstempel fehlt
     const mapped = candles.map((c) => ({
-      time: Math.floor(new Date(c.timestamp).getTime() / 1000),
+      time: c.timestamp ? Math.floor(new Date(c.timestamp).getTime() / 1000) : 0,
       open: c.open, high: c.high, low: c.low, close: c.close
     }));
 
@@ -53,11 +45,11 @@ export default function CandlesChart({
     if (indicatorHistory && indicatorHistory.length > 0) {
       const colorPalette = ["#f59e0b", "#3b82f6", "#ec4899", "#8b5cf6", "#10b981", "#ef4444", "#fbbf24"];
       
-      // Gruppiere Daten nach Indikator-Name
       const indMap = {};
-      const limit = replayEnabled ? replayIndex + 1 : indicatorHistory.length;
+      const limit = Math.min(indicatorHistory.length, mapped.length); 
+      const currentLimit = replayEnabled ? Math.min(replayIndex + 1, limit) : limit;
 
-      for (let i = 0; i < limit; i++) {
+      for (let i = 0; i < currentLimit; i++) {
         const step = indicatorHistory[i];
         if (!step) continue;
         step.forEach(iv => {
@@ -85,7 +77,7 @@ export default function CandlesChart({
     // --- Trades Markieren ---
     const markersToUse = replayEnabled ? replayMarkers.filter(m => m.index <= replayIndex) : replayMarkers;
     const markers = markersToUse
-        .filter((m) => m.signal !== "HOLD")
+        .filter((m) => m.signal !== "HOLD" && mapped[m.index])
         .map((m) => ({
           time: mapped[m.index].time,
           position: m.signal === "BUY" ? "belowBar" : "aboveBar",
@@ -97,7 +89,11 @@ export default function CandlesChart({
 
     chart.timeScale().fitContent();
 
-    const onResize = () => chart.applyOptions({ width: containerRef.current.clientWidth });
+    const onResize = () => {
+        if (containerRef.current) {
+            chart.applyOptions({ width: containerRef.current.clientWidth });
+        }
+    };
     window.addEventListener("resize", onResize);
 
     return () => {

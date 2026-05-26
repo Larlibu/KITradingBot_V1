@@ -6,6 +6,7 @@ import CandlesChart from "./CandlesChart";
 
 /**
  * React-Komponente fuer das Hauptlayout des Dashboards.
+ * Organisiert die Sidebar und den Hauptinhaltsbereich.
  */
 export default function MainDashboardLayout({
   isLive,
@@ -113,11 +114,11 @@ export default function MainDashboardLayout({
             {replayEnabled && (
               <div className="replay-controls">
                 <div className="control-row">
-                  <button onClick={() => handleReplayStep(-1)} disabled={replayIndex <= 0}><-</button>
+                  <button onClick={() => handleReplayStep(-1)} disabled={replayIndex <= 0}>{"\u2190"}</button>
                   <button className={isPlaying ? "warning-button" : "success-button"} onClick={togglePlay}>
-                    {isPlaying ? "|| Pause" : "> Abspielen"}
+                    {isPlaying ? "\u23F8 Pause" : "\u25B6 Abspielen"}
                   </button>
-                  <button onClick={() => handleReplayStep(1)} disabled={replayIndex >= maxReplayIndex}>-></button>
+                  <button onClick={() => handleReplayStep(1)} disabled={replayIndex >= maxReplayIndex}>{"\u2192"}</button>
                 </div>
                 <div className="speed-control">
                   <input

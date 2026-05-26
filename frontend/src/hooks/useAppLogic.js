@@ -7,8 +7,8 @@ import { useReplay } from "./useReplay";
 import { INDICATOR_TEMPLATES } from "../indicators/tradingViewIndicators";
 
 /**
- * Controller-Hook fuer die App:
- * Nutzt ausschliesslich Backend-Daten (ta4j Source of Truth).
+ * Controller-Hook fuer die App.
+ * Enth?lt Sicherheitspr?fungen f?r Initialzust?nde (leere Daten).
  */
 export function useAppLogic() {
   const [viewMode, setViewMode] = useState("ANALYSE");
@@ -45,8 +45,10 @@ export function useAppLogic() {
     replayEnabled,
     setReplayEnabled,
     replayIndex,
+    setReplayIndex,
     replaySignal,
     replayMarkers,
+    setReplayMarkers,
     handleReplayStep,
     maxReplayIndex,
     isPlaying,
@@ -56,6 +58,26 @@ export function useAppLogic() {
     lastTradeSignal,
     resetTradeSignal
   } = useReplay(marketData, evaluateDecisionAtIndex);
+
+  // Synchronisiere Backtest-Ergebnisse mit Replay-Markern
+  useEffect(() => {
+    if (backtest && backtest.decisions) {
+        const markers = backtest.decisions
+            .map((d, i) => ({ index: i, signal: d.signal }))
+            .filter(m => m.signal !== "HOLD");
+        setReplayMarkers(markers);
+    }
+  }, [backtest, setReplayMarkers]);
+
+  // Automatischer Preview-Backtest
+  useEffect(() => {
+    if (!isLive && !loadingBacktest && indicators.length > 0) {
+        const timer = setTimeout(() => {
+            handleBacktest("BTCUSDT", 500);
+        }, 1500);
+        return () => clearTimeout(timer);
+    }
+  }, [indicators, useMlVote, isLive]);
 
   useEffect(() => {
     const updateStatus = async () => {
@@ -69,6 +91,7 @@ export function useAppLogic() {
 
   const isReplayMode = replayEnabled && !isLive;
 
+  // SICHERHEITS-CHECKS fuer initiale Rendermodi
   const currentPrice = isReplayMode
     ? (replaySignal?.close ?? marketData[replayIndex]?.close ?? 0)
     : (signalSnapshot?.currentPrice ?? 0);
@@ -81,9 +104,10 @@ export function useAppLogic() {
     ? (replaySignal?.prediction?.confidence ?? 0)
     : (signalSnapshot?.prediction?.confidence ?? 0);
 
+  // FEHLER-FIX: Optional Chaining f?r leere marketData
   const currentTimestamp = isReplayMode
     ? (replaySignal?.timestamp ?? marketData[replayIndex]?.timestamp)
-    : (signalSnapshot?.timestamp ?? marketData[marketData.length - 1]?.timestamp);
+    : (signalSnapshot?.timestamp ?? marketData[marketData.length - 1]?.timestamp ?? null);
 
   const activeIndicatorValues = useMemo(() => {
     if (isReplayMode) {
