@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+﻿import { useState, useCallback, useEffect, useRef } from "react";
 
 /**
  * Custom Hook zur Verwaltung der Replay-Funktionalität im Analyse-Modus.
@@ -81,6 +81,16 @@ export function useReplay(marketData, evaluateDecisionAtIndex) {
   }, [maxReplayIndex, replayIndex, updateSignalAt]);
 
   /**
+   * Springt direkt zu einem bestimmten Replay-Index und aktualisiert das Signal.
+   * @param {number} index - Der Ziel-Index.
+   */
+  const goToReplayIndex = useCallback(async (index) => {
+    const next = Math.max(0, Math.min(maxReplayIndex, index));
+    setReplayIndex(next);
+    await updateSignalAt(next);
+  }, [maxReplayIndex, updateSignalAt]);
+
+  /**
    * Effekt für das automatische Abspielen.
    * Steuert den Timer und die Logik zum Stoppen bei Handelssignalen.
    */
@@ -141,6 +151,7 @@ export function useReplay(marketData, evaluateDecisionAtIndex) {
     setReplayMarkers,
     replayLoading,
     handleReplayStep,
+    goToReplayIndex,
     maxReplayIndex,
     isPlaying,
     togglePlay,

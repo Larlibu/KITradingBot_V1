@@ -1,4 +1,4 @@
-import AppHeader from "./AppHeader";
+﻿import AppHeader from "./AppHeader";
 import AppFooter from "./AppFooter";
 import MainDashboardLayout from "./MainDashboardLayout";
 import DashboardCards from "./DashboardCards";
@@ -45,6 +45,7 @@ export default function AppView({
   handleBacktest,
   setReplayEnabled,
   handleReplayStep,
+  goToReplayIndex,
   maxReplayIndex,
   isPlaying,
   togglePlay,
@@ -97,6 +98,7 @@ export default function AppView({
         handleBacktest={handleBacktest}
         setReplayEnabled={setReplayEnabled}
         handleReplayStep={handleReplayStep}
+        goToReplayIndex={goToReplayIndex}
         maxReplayIndex={maxReplayIndex}
         isPlaying={isPlaying}
         togglePlay={togglePlay}

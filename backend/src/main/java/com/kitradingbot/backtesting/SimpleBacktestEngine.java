@@ -99,12 +99,23 @@ public class SimpleBacktestEngine implements BacktestEngine {
         if (exit == null) exit = new BooleanRule(false);
 
         List<MlPredictionResponse> predictions = new ArrayList<>();
+        int warmup = 35;
         if (useMl) {
             List<double[]> feats = new ArrayList<>();
-            for (int i = 35; i < market.size(); i++) feats.add(featurePipeline.buildFeatures(market.subList(0, i + 1), indicators));
-            try { predictions = mlServiceClient.predictBatch(feats); } catch (Exception e) { useMl = false; }
+            for (int i = warmup; i < market.size(); i++) feats.add(featurePipeline.buildFeatures(market.subList(0, i + 1), indicators));
+            try { 
+                predictions = mlServiceClient.predictBatch(feats); 
+                Rule mlBuy = new MlRule(predictions, SignalType.BUY, 0.5, warmup);
+                Rule mlSell = new MlRule(predictions, SignalType.SELL, 0.5, warmup);
+                entry = new AndRule(entry, mlBuy);
+                exit = new AndRule(exit, mlSell);
+            } catch (Exception e) { 
+                log.error("ML Prediction failed", e);
+                useMl = false; 
+            }
         }
 
+        Strategy strategy = new BaseStrategy(entry, exit);
         TradingRecord record = new BaseTradingRecord();
         List<SignalDecision> decisions = new ArrayList<>();
         List<List<IndicatorValue>> indHistory = new ArrayList<>();
@@ -116,24 +127,26 @@ public class SimpleBacktestEngine implements BacktestEngine {
             }
             indHistory.add(stepInds);
 
-            if (i < 35) {
+            if (i < warmup) {
                 decisions.add(new SignalDecision(SignalType.HOLD, "Warmup", 0, market.get(i).timestamp()));
                 continue;
             }
 
-            Rule currentEntry = entry; Rule currentExit = exit;
-            if (useMl && (i-35 < predictions.size())) {
-                MlRule mlBuy = new MlRule(predictions.get(i-35), SignalType.BUY, 0.5);
-                MlRule mlSell = new MlRule(predictions.get(i-35), SignalType.SELL, 0.5);
-                currentEntry = new AndRule(entry, mlBuy);
-                currentExit = new AndRule(exit, mlSell);
-            }
-
-            Strategy strat = new BaseStrategy(currentEntry, currentExit);
             SignalType sig = SignalType.HOLD;
-            if (strat.shouldEnter(i, record)) { sig = SignalType.BUY; record.enter(i, series.getBar(i).getClosePrice(), series.numOf(1)); }
-            else if (strat.shouldExit(i, record)) { sig = SignalType.SELL; record.exit(i, series.getBar(i).getClosePrice(), series.numOf(1)); }
-            decisions.add(new SignalDecision(sig, "ta4j", 0, market.get(i).timestamp()));
+            if (strategy.shouldEnter(i, record)) { 
+                sig = SignalType.BUY; 
+                record.enter(i, series.getBar(i).getClosePrice(), series.numOf(1)); 
+            } else if (strategy.shouldExit(i, record)) { 
+                sig = SignalType.SELL; 
+                record.exit(i, series.getBar(i).getClosePrice(), series.numOf(1)); 
+            }
+            
+            double confidence = 0;
+            if (useMl && (i - warmup >= 0) && (i - warmup < predictions.size())) {
+                confidence = predictions.get(i - warmup).confidence();
+            }
+            
+            decisions.add(new SignalDecision(sig, "ta4j", confidence, market.get(i).timestamp()));
         }
 
         return convertToBacktestResult(series, record, market, decisions, indHistory);

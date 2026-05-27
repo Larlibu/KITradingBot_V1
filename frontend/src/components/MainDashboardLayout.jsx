@@ -1,4 +1,4 @@
-import React from "react";
+﻿import React from "react";
 import ControlsPanel from "./ControlsPanel";
 import MlTrainingPanel from "./MlTrainingPanel";
 import IndicatorConfigPanel from "./IndicatorConfigPanel";
@@ -31,6 +31,7 @@ export default function MainDashboardLayout({
   handleBacktest,
   setReplayEnabled,
   handleReplayStep,
+  goToReplayIndex,
   maxReplayIndex,
   isPlaying,
   togglePlay,
@@ -120,6 +121,20 @@ export default function MainDashboardLayout({
                   </button>
                   <button onClick={() => handleReplayStep(1)} disabled={replayIndex >= maxReplayIndex}>{"\u2192"}</button>
                 </div>
+                
+                <div className="navigation-control" style={{ margin: "10px 0" }}>
+                   <input
+                    type="range"
+                    min="0"
+                    max={maxReplayIndex}
+                    step="1"
+                    value={replayIndex}
+                    onChange={(e) => goToReplayIndex(Number(e.target.value))}
+                    style={{ width: "100%" }}
+                  />
+                  <div style={{ textAlign: "center", fontSize: "0.8rem", color: "var(--text-muted)" }}>Position (Kerze {replayIndex + 1} / {marketData.length})</div>
+                </div>
+
                 <div className="speed-control">
                   <input
                     type="range"
@@ -127,11 +142,10 @@ export default function MainDashboardLayout({
                     max="2000"
                     step="100"
                     value={2100 - playbackSpeed}
-                    onChange={(e) => setPlaybackSpeed(e.target.value)}
+                    onChange={(e) => setPlaybackSpeed(2100 - Number(e.target.value))}
                   />
                   <div style={{ textAlign: "center", fontSize: "0.8rem", color: "var(--text-muted)" }}>Geschwindigkeit</div>
                 </div>
-                <p className="replay-status">Kerze {replayIndex + 1} / {marketData.length}</p>
 
                 {replaySignal?.status === "READY" && (
                   <div className="replay-result">

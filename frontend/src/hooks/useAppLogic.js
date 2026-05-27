@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from "react";
+﻿import { useMemo, useState, useEffect } from "react";
 import { checkServerStatus } from "../api/tradingApi";
 import { useTrading } from "./useTrading";
 import { useIndicators } from "./useIndicators";
@@ -50,6 +50,7 @@ export function useAppLogic() {
     replayMarkers,
     setReplayMarkers,
     handleReplayStep,
+    goToReplayIndex,
     maxReplayIndex,
     isPlaying,
     togglePlay,
@@ -150,6 +151,7 @@ export function useAppLogic() {
     replaySignal,
     replayMarkers,
     handleReplayStep,
+    goToReplayIndex,
     maxReplayIndex,
     isPlaying,
     togglePlay,
